@@ -1,181 +1,130 @@
 ---
 name: xfqtrace-workflow
-description: 当智能体需要帮助用户安装 xfQTrace kit、配置 trace 目标、解释 JSON/hook_format/filter、分析 trace 产物/logcat/崩溃、处理 xfinject/frida-server 后端选择或排查 trace 不触发/不完成问题时使用。主路径：xfq init → xfq doctor → python 全自动化trace.py。公开 pip 包不包含 kit/APK/密码，kit 需要进知识星球获取。
+description: 当智能体需要帮助用户安装 xfQTrace kit、定位 kit 目录、用 kit 里的 全自动化trace.py 跑 trace、配置 recipe.json/CONFIG/hook_format/filter/exclude、选择 xfinject/frida-server 后端、查看 logcat/trace 产物、诊断 App 自身问题/环境不干净/Frida 检测/trace 不触发时使用。公开 pip 包不包含私有 kit/APK/密码，kit 需要进 x1a0f3n9 知识星球获取。
 ---
 
 # xfQTrace 智能体工作流
 
-> 这个技能只给智能体用。给用户的回答保持简短、偏操作。不要虚构成功 trace。
+核心原则：`xfq` 只是辅助工具；智能体自动 trace 时直接调用 kit 里的 `全自动化trace.py`，不要把 `xfq run` 当主路径。
 
-## 设计思想
+## 1. 先确认 kit 和环境
 
-```
-xfq                         ← 辅助工具：装 kit、检查环境、清理、看路径
-  ├─ xfq init              ← 安装 kit（解压 zip 到 ~/.local/share/xfqtrace/）
-  ├─ xfq doctor            ← 检查 adb/kit/设备/frida-server/kpm
-  ├─ xfq clean             ← 清理本地 trace 产物
-  ├─ xfq paths             ← 查看安装路径
-  └─ xfq update            ← 更新 xfq CLI 自身
-
-python 全自动化trace.py     ← AI 用它跑 trace，xfq run 只是它的封装
-  └─ 所有参数直接传，AI 需要精确控制
-```
-
-**核心**：xfq 不跑 trace，跑 trace 用 Python 脚本。xfq run 是给人用的简化封装，AI 应该直接调 Python 脚本。
-
-## 一、环境准备（用 xfq）
-
-用户第一次用时，让用户：
+如果用户还没有 kit：
 
 ```bash
-# 下载 kit zip（进 x1a0f3n9 知识星球获取）
+# kit zip 和密码请进入 x1a0f3n9 知识星球获取；公开 pip 包不内置私有 kit
 xfq init ./xfqtrace-kit-<version>.zip -p <password>
-# Windows 可用 --dir 指定位置: xfq init .qtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
-xfq doctor --serial <device-serial>
-```
-
-### Kit 装在哪
-
-`xfq init` 安装后，AI 需要知道 `全自动化trace.py` 的路径：
-
-```bash
-# 让用户运行这个命令查看确切路径
+xfq doctor --serial <serial>
 xfq paths
 ```
 
-默认位置：
+Windows 不想放默认 C 盘时：
 
-| 系统 | Kit 根目录 |
-|---|---|
-| Linux/macOS | `~/.local/share/xfqtrace/versions/<version>/` |
-| Windows | `%LOCALAPPDATA%/xfqtrace/versions/<version>/` |
-| 自定义 | `xfq init .qtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
-
-Kit 根目录下的 `全自动化trace.py` 就是 AI 跑 trace 用的入口脚本。
-
-### 安装后的目录结构
-
-
-```
-<kit-root>/
-├── 全自动化trace.py           # AI 跑 trace 用的 Python 入口
-├── 半自动化trace.js            # 默认 JS 兜底脚本（xfinject 读它的 CONFIG）
-├── manifest.json
-├── bin/
-│   ├── libxfqtrace.so          # Android 侧 trace payload
-│   ├── lz4 / lz4.exe           # 解压用
-│   ├── pidcat / pidcat.exe     # 彩色 logcat
-│   └── xfvmahide.kpm           # KernelPatch 隐藏模块（可选）
-├── helpers/                    # bypass / auto-click / xfinject_backend
-└── examples/
-    ├── com.shopee.vn/          # 烟雾测试样本
-    └── <package>/              # 其他样本
+```powershell
+xfq init .\xfqtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
 ```
 
-## 二、跑 trace（AI 用 Python 脚本）
+默认安装位置：
 
-**不要用 `xfq run`**。AI 直接调 Python 脚本：
+| 平台 | kit 位置 |
+| --- | --- |
+| Linux | `~/.local/share/xfqtrace/versions/<version>/xfqtrace-kit` |
+| macOS | `~/Library/Application Support/xfqtrace/versions/<version>/xfqtrace-kit` |
+| Windows | `%LOCALAPPDATA%\xfqtrace\versions\<version>\xfqtrace-kit` |
+
+`xfq doctor` 只检查环境。没有 KPM/`xfvmahide.kpm` 时要提醒，但普通 trace 不一定需要；如果要安装隐藏模块，按 doctor 给出的命令走 APatch/KernelPatch 授权/密码流程。
+
+## 2. AI 跑 trace 的命令
+
+进入 kit 根目录，或使用绝对路径调用：
 
 ```bash
-python <kit-root>/全自动化trace.py -p <package> --serial <serial> --inject-backend xfinject
+cd <kit-root>
+python ./全自动化trace.py -p <package> --serial <serial> --inject-backend xfinject
 ```
 
-### 典型命令
+常用命令：
 
 ```bash
-# 默认 xfinject + 自动点击
-python 全自动化trace.py -p com.shopee.vn --serial 13081FDD4002VL
+# xfinject：推荐 AI 自动跑，显式指定后端
+python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backend xfinject
 
-# 指定后端
-python 全自动化trace.py -p com.shopee.vn --serial XXX --inject-backend frida-server
+# 本轮先清旧 trace/logcat，再跑；不会 pm clear app data
+python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backend xfinject --clear-logs target
 
-# 不清数据（保留登录态）
-python 全自动化trace.py -p com.shopee.vn --serial XXX --no-clear-app-data
+# 首启/隐私协议场景才清 app data
+python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backend xfinject --clear-app-data
 
-# 关自动点击
-python 全自动化trace.py -p com.shopee.vn --serial XXX --no-auto-click
+# 不要自动点击 UI
+python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backend xfinject --no-auto-click
 
-# 清缓存 + 跑
-python 全自动化trace.py -p com.shopee.vn --serial XXX --clear-app-data
+# 临时只验证 arm 链路；超时返回不代表 trace 成功/失败
+python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backend xfinject --xfinject-timeout 60 --keep-running-on-timeout
 
-# 只用 frida-server + bypass
-python 全自动化trace.py -p com.starbucks.cn --serial XXX --inject-backend frida-server --bypass bangbang
+# frida-server 后端；只有这个后端才有 bypass 意义
+python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backend frida-server --bypass bangbang
 ```
 
-### 重要行为
+重要事实：
 
-- **每次默认先 `force-stop`** 旧进程
-- **默认 auto-click 开启**：自动点隐私协议/权限弹窗
-- **默认 clear-app-data 关闭**：保留登录态
-- **默认 log-viewer 不开启**：logcat 录到设备 `/sdcard/`，trace 完后拉回
-  - 如需终端实时看：加 `--log-viewer auto`
-- **日志文件等级**：`--console-log-level I`（终端），`--log-file-level V`（文件）
+- Python 脚本源码默认 `--inject-backend frida-server`，所以 AI 想用 xfinject 必须显式传 `--inject-backend xfinject`。
+- 普通启动前脚本会先 `am force-stop <package>`。
+- 默认 auto-click 开启；默认不 `pm clear`，保留登录态/风控缓存。
+- 默认 `--log-viewer none`：不把 xfQTrace logcat 实时刷到 Python 控制台。
+- 脚本会在设备侧录 `xfQTrace` 日志，结束/失败后拉回本地。
 
-### 输出目录
+## 3. 产物和日志怎么看
 
-```
-<kit-root>/examples/<package>/xfqtrace_logs/<N>/
-├── logcat.txt              # 最重要的诊断文件
-├── crash_summary.txt       # 崩溃摘要（有崩溃才生成）
-├── *.log.lz4 / *.log       # trace 数据（自动 lz4 解压）
-└── *.meta                  # 线程/block 元信息
+本地输出目录一般在：
+
+```text
+<kit-root>/examples/<package>/logs/<N>/
 ```
 
-### 完整参数列表
+重点文件：
 
-| 参数 | 说明 | 默认值 |
-|---|---|---|
-| `-p / --package` | **必填** 目标包名 | 无 |
-| `--serial` | ADB 设备序列号 | 自动找 |
-| `--inject-backend` | 注入后端：`xfinject` / `frida-server` | `frida-server`（Python 脚本默认） |
-| `--attach` | 附加运行中进程，不 spawn | false |
-| `--script` | 自定义 JS 脚本路径 | 自动找 |
-| `--xfinject-timeout` | 等待秒数（0=无限） | 0 |
-| `--keep-running-on-timeout` | 超时后保留现场 | false |
-| `--vma-hide` | VMA 隐藏模式 | `auto` |
-| `--reinstall` | 卸载重装 APK | 无 |
-| `--pull-only` | 只拉已有产物 | false |
-| `--no-push` | 跳过 push SO（SO 已在设备） | false |
-| `--no-decompress` | 不自动解压 lz4 | false |
-| `--clear-app-data` | `pm clear` 清数据 | false |
-| `--no-clear-app-data` | 强制不清数据 | false |
-| `--auto-click` | UI 自动点击（隐私弹窗） | true |
-| `--no-auto-click` | 关自动点击 | false |
-| `--clear-logs` | 清日志：`target` / `all` | 不清 |
-| `--clear-only` | 只清日志退出 | false |
-| `--log-viewer` | 终端日志：`none`/`auto`/`pidcat`/`logcat` | `none` |
-| `--console-log-level` | 终端日志等级 | `I` |
-| `--log-file-level` | 文件日志等级 | `V` |
-| `--bypass` | 预注入反检测（仅 frida-server） | 无 |
+| 文件 | 用途 |
+| --- | --- |
+| `logcat.txt` | 最重要，包含 `xfQTrace`、崩溃、JNI 错误等诊断信息。 |
+| `crash_summary.txt` | 有崩溃时生成的摘要。 |
+| `*.log.lz4` / `*.log` | trace 数据；有 lz4 时脚本会尝试自动解压。 |
+| `*.meta` | 线程/block 元信息。 |
 
-> 注意：Python 脚本 `--inject-backend` 默认是 `frida-server`。AI 显式传 `--inject-backend xfinject` 切换。
-
-## 三、注入后端选择
-
-| 维度 | xfinject | frida-server |
-|---|---|---|
-| 设备侧 server | 不需要 | 需自带server|
-| JS 注入 | 不支持 | 支持 bypass |
-| 时机 | SO 加载后 arm（dlopen hook） | spawn 模式 |
-| 检测绕过 | 无 frida 特征 | 需 bypass |
-| 适用 | 新样本、无 JS 依赖 | 旧样本、需 bypass |
-
-启动 frida-server：
+默认终端不显示实时 logcat；如果需要现场看：
 
 ```bash
-adb -s <serial> shell su -c '/data/local/tmp/xj3 >/dev/null 2>&1 &'
-adb -s <serial> shell pidof xj3
+python ./全自动化trace.py -p <package> --serial <serial> --inject-backend xfinject --log-viewer auto
+# 或手动看设备日志
+adb -s <serial> logcat -v threadtime -s xfQTrace
 ```
 
-## 四、配置（recipe.json / CONFIG）
+判断 trace 状态看关键字，不要靠固定 timeout：
 
-Python 脚本加载优先级：
-1. `--script <path>` → 指定 JS 文件
-2. `examples/<package>/recipe.json` → 纯 JSON 格式
-3. `examples/<package>/半自动化trace.js` → JS 格式（含 `const CONFIG = {...}`）
-4. 根目录 `半自动化trace.js` → 兜底
+| 关键字 | 含义 |
+| --- | --- |
+| `xfqtrace armed:` / `trace armed successfully` | hook 已挂上，不等于 trace 完成。 |
+| `waiting for <lib> to load` | 目标 SO 还没出现。 |
+| `found <lib> @ 0x...` | 目标 SO 找到。 |
+| `trace begin` | 目标函数已触发，trace 开始。 |
+| `flush #N: raw=... compressed=...` | 后台持续落盘；长 trace 中这是正常进度。 |
+| `trace end` / `trace completed successfully` | trace 正常结束。 |
+| `JNI DETECTED ERROR` | 多半是 `hook_format` 和真实 JNI 签名不一致。 |
+| `Fatal signal` / `FATAL EXCEPTION` | App/注入/trace 过程崩溃。 |
+| `skip: filter mismatch` | filter 没命中。 |
+| `skip: another trace is already in progress` | 重入/多线程触发，但当前已有 trace 在跑。 |
 
-### recipe.json（推荐）
+## 4. 配置加载优先级
+
+`全自动化trace.py` 按顺序加载：
+
+1. `--script <path>`：完全使用指定 JS。
+2. `examples/<package>/recipe.json`：推荐，新样本优先写它。
+3. `examples/<package>/半自动化trace.js`：旧 CONFIG 脚本。
+4. kit 根目录 `半自动化trace.js`：兜底。
+
+## 5. recipe.json 写法
+
+`recipe.json` 必须是 JSON 对象，至少包含 `target` 和 `options`。JSON 里 `offset` 写十进制；交流时可以写 `libxxx.so!0x偏移`。
 
 ```json
 {
@@ -183,219 +132,169 @@ Python 脚本加载优先级：
   "target": {
     "type": "func",
     "so_name": "libtarget.so",
-    "offset": 74565
+    "offset": 4660
   },
   "options": {
     "inline_hook_backend": 2,
     "out_format": "traceui",
     "lz4_compression": { "enable": true, "level": 0 },
     "stop_condition": { "max_traces": 1 },
-    "hook_format": { "args": "env,_,jobj,jstr,jlong", "ret": "jstr" }
-  }
+    "hook_format": { "args": "env,obj,jstr", "ret": "jstr" }
+  },
+  "notes": "可选：版本、触发步骤、已知问题"
 }
 ```
 
-`offset` 写十进制，交流时用 `libtarget.so!0x12345`。
+常用 `options`：
 
-### CONFIG（JS 文件格式，xfinject 也能读）
+| 字段 | 说明 |
+| --- | --- |
+| `inline_hook_backend` | `0`=shadowhook，`1`=frida-gum，`2`=Dobby；一般先用 2。 |
+| `out_format` | 常用 `traceui`；`xfqtrace` 信息更多但更大。 |
+| `lz4_compression` | 建议 `{ "enable": true, "level": 0 }`。 |
+| `stop_condition.max_traces` | 命中几次目标调用后自然停。 |
+| `hook_format` | 参数/返回值类型，JNI 参数必须谨慎。 |
+| `filter` / `filter_display` | 只 trace 指定调用。 |
+| `anon_trace` | 目标进入匿名可执行段时继续跟踪。 |
+| `memory_trace` | 内存访问记录，默认别开。 |
+| `sync_flush` | 排查最后日志时临时开，性能很差。 |
+| `logging` | native 日志节奏；不要把 pidcat/logcat 配到这里。 |
+| `exclude` / `exclude_ranges` | 排除模块或地址段，减少公共库噪音。 |
 
-```javascript
-const CONFIG = {
-    package: "com.target.app",
-    target: {
-        type: "func",
-        so_name: "libtarget.so",
-        offset: 0x1234,
-    },
-    options: {
-        inline_hook_backend: 2,
-        out_format: "traceui",
-        lz4_compression: { enable: true, level: 0 },
-        stop_condition: { max_traces: 1 },
-        hook_format: { args: "env,_,jobj,jstr", ret: "jstr" },
-    },
-};
-```
+## 6. hook_format 速查
 
-### options 字段
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `inline_hook_backend` | int | `0`=shadowhook, `1`=frida-gum, `2`=Dobby（推荐） |
-| `out_format` | string | `"traceui"` 常规, `"xfqtrace"` 内部格式 |
-| `lz4_compression` | object | `{"enable":true,"level":0}` |
-| `stop_condition` | object | `{"max_traces":1}` 触发 N 次后停 |
-| `hook_format` | object | 参数/返回值类型，JNI 必写 |
-| `filter` | object | 采集条件 |
-| `filter_display` | string | 命中时显示格式 |
-| `exclude_ranges` | array | 排除 SO 内部分 offset 不插桩 |
-| `memory_trace` | bool | 内存读写，默认 false |
-| `logging` | object | 日志等级控制 |
-
-### hook_format
+JNI 参数通常：`x0=JNIEnv*`，`x1=this/jclass`，业务参数从 `x2` 开始。
 
 ```json
-{ "args": "env,_,jobj,jstr,jlong", "ret": "jstr" }
-```
-
-常用类型：`env` / `_` / `jobj` / `jcls` / `jstr` / `jlist` / `jbarr` / `jarr` / `jint` / `jlong` / `ptr` / `cstr` / `void`
-
-**写错 → CheckJNI 崩溃。不确定就不写。**
-
-JNI 例子：
-
-```json
-// nativeSign(Context, String, long) → String
-{ "args": "env,_,jobj,jstr,jlong", "ret": "jstr" }
-
-// SMSDK.w1(Context, String..., List) → Object
+{ "args": "env,obj,jstr,jstr", "ret": "jstr" }
+{ "args": "env,jclass,jobj,jstr,int", "ret": "jstr" }
 { "args": "env,_,jobj,jstr,jstr,jstr,jstr,jstr,jstr,jstr,jlong,jstr,jlist", "ret": "jobj" }
-
-// doCalc(int, byte[], int) → int
-{ "args": "env,_,jint,jbarr,jint", "ret": "jint" }
 ```
 
-### filter
+常用类型：`_`、`env`、`obj`/`jobj`、`jclass`、`jstr`、`jbarr`、`jarr`/`jobjarr`、`jlist`、`jset`、`jmap`、`int`、`long`/`jlong`、`bool`、`ptr`、`hex`、`cstr`、`buf.N`、`jmap.diff`/`jlist.diff`/`jbarr.diff`。
+
+写错 `hook_format` 可能触发 CheckJNI/JNI abort；不确定时先不写或只写确认的参数。
+
+## 7. filter / exclude 示例
 
 ```json
-// 整数过滤
-{ "arg": 2, "type": "int", "op": "eq", "value": 10401 }
-// 字符串包含
-{ "arg": 3, "type": "jstr", "op": "contains", "value": "api" }
-// byte[] 前缀
-{ "arg": 4, "type": "jbarr", "op": "prefix", "encoding": "hex", "value": "01020304" }
-// 组合
-{ "all": [{ "arg": 2, "type": "int", "op": "eq", "value": 10401 }, { "arg": 3, "type": "jstr", "op": "contains", "value": "api" }] }
+"filter": { "arg": 2, "type": "int", "op": "eq", "value": 10401 },
+"filter_display": "env,obj,int,jobjarr"
 ```
 
-### exclude_ranges
+```json
+"filter": {
+  "all": [
+    { "arg": 2, "type": "int", "op": "eq", "value": 10401 },
+    { "arg": 4, "type": "jstr", "op": "contains", "value": "mini/rp" }
+  ]
+}
+```
+
+```json
+"filter": {
+  "arg": 2,
+  "type": "jbarr",
+  "op": "contains",
+  "encoding": "hex",
+  "value": "504B0304"
+}
+```
+
+```json
+"exclude": { "modules": ["libc.so", "libart.so", "liblog.so"] }
+```
 
 ```json
 "exclude_ranges": [
-  { "start": "0x12000", "end": "0x12800" }
+  { "start": "0x7000000000", "end": "0x7000010000", "reason": "known dispatcher" }
 ]
 ```
 
-相对 SO 基址偏移，半开 `[start, end)`。不要排除目标函数入口。
+新样本不要一开始乱排除；先跑通最小配置，再按 trace 噪音和体积加。
 
-## 五、常见失败诊断
+## 8. 注入后端选择
 
-### 1️⃣ App自身的问题
+| 维度 | xfinject | frida-server |
+| --- | --- | --- |
+| 设备侧 server | 不需要 | 需要用户自备/启动。 |
+| Frida JS/bypass | 不执行 JS bypass | 支持 `--bypass`。 |
+| 默认建议 | AI 自动 trace 优先用 | 旧样本或必须 bypass 时用。 |
+| 检测判断 | 不按 Frida 检测解释 | 可能被 Frida 检测。 |
 
-**Trace 跑完了但没拿到想要的调用**
-- offset 不对 — 最常犯，确认真函数地址是不是对的
-- 业务没触发 — 需要点按钮、清缓存、登录才能走到目标函数
-- filter 太严 — 搜 logcat 里 `skip: filter mismatch`，看是不是过滤掉了
-- SO 在多进程（`:pushservice` 等）— 确认目标 SO 加载在哪个进程
+frida-server 不打包进 kit。项目推荐环境：设备侧 `/data/local/tmp/xj3`，Python `frida==16.2.1`、`frida-tools==12.0.0`，设备 server 推荐 16.5.7。
 
-**App 直接崩溃**
-
-**App 打不开 / 闪退 / 没反应**
-- 先确认 app 本身能不能正常打开 — 不用工具，直接 `adb shell monkey -p <pkg> 1` 启动
-- `Unable to instantiate appComponentFactory` — APK 自身问题，跟注入无关
-- 装了兼容性问题（targetSdkVersion 不匹配等）— 检查 logcat 里其他错误标签
-- 有时就是 APK 版本/设备不兼容，换版本或换设备试
-- `JNI DETECTED ERROR` — hook_format 写错了（`jobj` 写成 `jint`），检查参数个数和类型
-- `Fatal signal` — 注入时机太晚或反调试冲突
-- `Unable to instantiate appComponentFactory` — APK 自身问题，不关工具的事
-- 可以先换 `inline_hook_backend: 0`(shadowhook) / `1`(frida-gum) / `2`(dobby) 试
-
-**SO 一直不出现**
-- so_name 写错了，`adb shell grep libxxx /proc/<pid>/maps` 看看
-- 多进程 app，SO 可能还没加载或加载在子进程
-- 已 hook `__loader_dlopen` / `__loader_android_dlopen_ext`，理论上 SO 一出现就能抓到
-
-### 2️⃣ 环境不干净
-
-**Trace 结果异常、进程启动不对**
-- 之前跑过 frida-server 没杀掉就切 xfinject 了 — 先 `adb shell su -c "pkill xj3"` 杀掉，重启 app 再试
-- 旧进程还在 — xfinject 默认 spawn 但可能错过子进程，先 `adb shell am force-stop <pkg>`
-- 设备上残留旧的 xfqtrace_config.json — `xfq run` 会 force-stop，也清理 `/data/data/<pkg>/cache/`，手动跑时注意
-
-**ADB 问题**
-- `adb devices` 看看设备在不在，序列号对不对
-- 多设备时没传 `--serial`
-
-### 3️⃣ Frida 检测没过
-
-**用了 frida-server 后端**
-- frida-server 特征太明显，app 检测到了就闪退/不触发
-- 需要加 `--bypass bangbang` 或 `--bypass apiguard3`
-- bypass 脚本在 `helpers/bypass_*.js`，目前支持：msa、bangbang、apiguard3、dump_apiguard3
-
-**用了 xfinject 后端**
-- xfinject 没有 frida 特征，不存在检测问题
-- `--bypass` 参数在 xfinject 下会被忽略
-- 如果还是崩溃，属于 app 自身问题或环境问题，不是 frida 检测
-
-### 4️⃣ 工具行为类
-
-**Trace 不结束 / 很久**
-- 10-30 分钟正常 — 不是卡死，看 logcat 里 `flush #N: raw=... compressed=...` 是否在持续涨
-- `stop_condition` 没设 `max_traces` 或值太大，trace 不会自己停，靠业务触发
-- **不要用超时判失败**，看 flush 量和 logcat 里 `trace end` / `trace completed successfully`
-
-**完全没有任何日志输出**
-- `DEFAULT_LOG_VIEWER = "none"`，默认不开终端 logcat
-- 设备侧日志录到 `/sdcard/`，trace 完后 `adb pull` 拉回
-- 如需终端实时看：加 `--log-viewer auto`
-- `stop_condition` 没设 `max_traces` 或值很大
-
-## 六、logcat 关键字速查
-
-在 `logcat.txt` 里搜：
-
-| 关键字 | 含义 |
-|---|---|
-| `==========================================================================` | banner，libxfqtrace.so 已加载 |
-| `xfqtrace armed:` / `trace armed successfully` | hook 已挂上（不等同 trace 完成） |
-| `waiting for <lib> to load` | SO 还没出现 |
-| `found <lib> @ 0x...` | SO 找到 |
-| `trace begin` | trace 开始 |
-| `trace end` / `trace completed successfully` | trace 正常完成 |
-| `flush #N: raw=... compressed=...` | 写盘心跳（数据在涨就是好的） |
-| `config error` / `start error` | 配置失败 |
-| `skip: filter mismatch` | filter 没命中（正常） |
-| `skip: another trace is already in progress` | 正在 trace，忽略重复 |
-| `Fatal signal` / `FATAL EXCEPTION` | 应用崩溃 |
-| `JNI DETECTED ERROR` | hook_format 写错 |
-
-## 七、样本反馈格式
-给项目作者的反馈指南
-```text
-apk: <包名 / 版本 / 来源>
-json: <recipe.json 或 CONFIG>
-target: libxxx.so!0x<offset>
-sig: <JNI 函数名和签名>
-steps: <触发步骤 + 清缓存/登录>
-backend: xfinject | frida-server
-logs: <logcat.txt 路径>
-```
-
-## 八、实时看日志 / 更新 / 提醒
-
-### 实时看日志（手动用 adb）
+启动示例：
 
 ```bash
-adb -s <serial> logcat -v threadtime -s xfQTrace
-adb -s <serial> logcat -v threadtime | grep -E 'xfQTrace|FATAL|crash|JNI'
+adb -s <serial> shell su -c '/data/local/tmp/xj3 >/dev/null 2>&1 &'
+adb -s <serial> shell pidof xj3
 ```
 
-### 更新
+## 9. 失败诊断按这四类分
 
-- **xfq CLI**：`xfq update` 或自动检测按 y
-- **Kit / libxfqtrace.so**：进知识星球下载新版 → `xfq init <new.zip> -p <password> --force`
-- **AI 技能**：pip 更新后自动刷新；也可 `xfq skill install --target both --force`
+### App 自身问题
 
-### 提醒
+先验证不注入时 app 能不能打开：
 
-- `xfq doctor` 只检查不清理，清理用 `xfq clean`。
-- `xfq clean --traces`：清理本机 examples/*/xfqtrace_logs，不清设备侧文件。
-- `xfq clean --all-versions`：删除所有旧 kit 版本（保留当前版本）。
-- `xfq clean --version <v>`：删除指定版本。
-- `trace armed successfully` ≠ trace 完成。要看 `trace end` / `completed`。
-- 长 trace 不能靠超时判失败。看 flush 量。
-- offset 交流用 `libxxx.so!0x1234`，JSON 写十进制。
-- **默认不开终端 logcat**，设备侧录文件，trace 完后拉回。要实时看加 `--log-viewer auto`。
-- **不要通过改代码把失败 trace 伪装成成功。**
-- 默认会 force-stop。要保留登录态别加 `--clear-app-data`。
+```bash
+adb -s <serial> shell monkey -p <package> 1
+```
+
+常见证据：`Unable to instantiate appComponentFactory`、`ClassNotFoundException`、裸启动闪退、什么都不做也打不开。还有：offset 错、业务没触发、filter 太严、SO 在另一个进程、`hook_format` 导致 CheckJNI、`Fatal signal`。
+
+### 环境不干净
+
+测 xfinject 前建议：
+
+```bash
+adb -s <serial> shell su -c 'pkill -f xj3; pkill -f frida-server; true'
+adb -s <serial> shell am force-stop <package>
+```
+
+排查旧进程、旧 `/data/data/<package>/cache/xfqtrace_config.json`、选错 serial、frida-server 残留。
+
+### Frida 检测没过
+
+只在 `--inject-backend frida-server` 时考虑。xfinject 下 `--bypass` 会被忽略；如果 xfinject 也崩，优先看 App 自身问题、环境或 trace 引擎问题。
+
+### 工具行为/配置问题
+
+- `armed` 但无 `trace begin`：业务没触发、地址错、filter 太严或进程不对。
+- 长时间 `flush #...`：可能是 trace 很久，不要用 timeout 断言失败。
+- `skip: another trace is already in progress`：重入/并发触发，不是 Python 卡死。
+- `shadowhook init failed`：优先用 `inline_hook_backend: 2`。
+
+## 10. xfq clean 到底清什么
+
+```bash
+xfq clean --traces
+```
+
+只清本机当前已安装 kit 下：
+
+```text
+<kit-root>/examples/*/xfqtrace_logs
+```
+
+不会清设备 `/sdcard`、不会清 `/data/data/<package>`、不会 `pm clear`。
+
+```bash
+xfq clean --all-versions   # 删除旧 kit 版本，保留当前版本
+xfq clean --version <v>    # 删除指定版本
+```
+
+## 11. 反馈给用户/作者时要带这些
+
+```text
+package: <包名和版本>
+backend: xfinject | frida-server
+command: <完整命令>
+target: libxxx.so!0x偏移
+recipe/js: <recipe.json 或 CONFIG 关键片段>
+steps: <触发步骤，是否登录/清缓存/首启>
+logs: <logcat.txt 关键段或路径>
+trace_dir: <本地输出目录>
+```
+
+不要只说“没触发/崩溃”。必须能区分：SO 没加载、已 arm 但业务没走、地址错、hook_format 错、检测崩溃、还是 trace 正在正常跑。

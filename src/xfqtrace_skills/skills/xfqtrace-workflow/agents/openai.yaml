@@ -1,6 +1,4 @@
 interface:
-  display_name: "xfQTrace 工作流"
-  short_description: "安装 xfQTrace kit、默认 xfinject 运行 trace、解释 CONFIG JSON"
-  default_prompt: "请使用 $xfqtrace-workflow 来执行 xfq 测试 trace，或回答 recipe.json / CONFIG / hook_format / filter 的问题。"
-policy:
-  allow_implicit_invocation: true
+  display_name: "xfQTrace Workflow"
+  short_description: "安装 kit，并指导智能体用全自动化trace.py 跑 xfQTrace。"
+  default_prompt: "请使用 $xfqtrace-workflow：先用 xfq 检查/定位 kit，再直接调用全自动化trace.py 跑 trace，并按 logcat/recipe.json 诊断问题。"
