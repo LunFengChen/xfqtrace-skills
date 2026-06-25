@@ -16,7 +16,7 @@ xfq init ./xfqtrace-kit-<version>.zip -p <password>
 # Windows 如果不想把 kit 放 C 盘，可以指定:
 # xfq init ./xfqtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
 xfq doctor --serial <device-serial>
-xfq run test --serial <device-serial>                # 默认 xfinject，com.shopee.vn 指纹函数
+xfq run test --serial <device-serial>                # 默认 xfinject；lite kit 需要设备已预装 com.shopee.vn
 ```
 
 可选：
@@ -33,7 +33,7 @@ xfq run test --serial <device-serial> --inject-backend frida-server
 | `xfq paths` | 查看 kit 安装目录、配置文件路径 |
 | `xfq doctor --serial <device>` | 只检查环境，不做清理 |
 | `xfq doctor --serial <device> --install-kpm --kpm-superkey <key>` | 检查并按需加载 kit/bin/xfvmahide.kpm |
-| `xfq run test --serial <device> --dry-run` | 用当前真实 kit 检查将执行的命令 |
+| `xfq run test --serial <device> --dry-run` | 用当前真实 kit 检查将执行的命令；lite kit 不含 APK，Shopee 需预装 |
 | `xfq clean --traces -y` | 清理本机 kit/examples 下的 trace/logcat 产物 |
 | `xfq clean --all-versions -y` | 删除非当前版本的旧 kit |
 | `xfq update` | 更新 xfqtrace-skills 包并刷新技能 |
@@ -55,6 +55,10 @@ xfq init .\xfqtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
 ```
 
 技能目录不受 `--dir` 影响，仍然是用户目录下的 `.codex/skills` / `.claude/skills`。
+
+## 关于 Shopee smoke
+
+当前默认发布的是 lite kit，不内置 Shopee APK。`xfq run test` 仍然指向 `com.shopee.vn` 的 smoke 脚本，但要求设备上已经预装对应 app；只有 full kit 或手动放入 APK/XAPK 时，`xfq run` 才可能自动安装 APK。
 
 ## 智能体技能
 
@@ -105,9 +109,11 @@ xfq update -y
 
 `xfq init` 会显示 `kit/bin` 里的工具状态；`xfq doctor --json` 里也有 `bundle.bundled_tools`：
 
-- 必须：`libxfqtrace.so`
+- 必须：`libxfqtrace.so`、`xfinjectd`
 - 建议：`lz4`、`lz4.exe`、`pidcat`、`pidcat.exe`、`7z`、`7z.exe`
 - 可选：`xfvmahide.kpm`
+
+默认后端是 `xfinject`，所以 kit 里缺 `bin/xfinjectd` 就不是“可选缺失”，而是这个 kit 不能正常跑默认链路，需要重新获取/安装完整 kit。
 
 `xj3` / frida-server 不打包进 kit。选择 `--inject-backend frida-server` 时，推荐设备侧 server 为 `16.5.7`，Python 侧推荐 `frida==16.2.1`、`frida-tools==12.0.0`。
 

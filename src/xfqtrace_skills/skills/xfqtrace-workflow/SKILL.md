@@ -34,6 +34,8 @@ xfq init .\xfqtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
 
 `xfq doctor` 只检查环境。没有 KPM/`xfvmahide.kpm` 时要提醒，但普通 trace 不一定需要；如果要安装隐藏模块，按 doctor 给出的命令走 APatch/KernelPatch 授权/密码流程。
 
+`libxfqtrace.so` 和 `xfinjectd` 都是 kit 必需文件。因为默认后端是 `xfinject`，所以 `xfq init`/`xfq doctor` 如果报缺 `bin/xfinjectd`，不要继续跑默认 trace，应该让用户重新安装完整 kit；`xj3`/frida-server 仍然不随 kit 打包，只在用户显式选择 `--inject-backend frida-server` 时才需要。
+
 ## 2. AI 跑 trace 的命令
 
 进入 kit 根目录，或使用绝对路径调用：
@@ -231,6 +233,8 @@ examples/com.shopee.vn/主动调用验证.js
 - 如果只验证 Java/JNI 主动调用是否可用，先跑 `主动调用验证.js`；它不加载 trace 引擎，只打印真实返回值。
 
 这个模式的价值是把“等待业务自然触发”变成“trace armed 后主动触发”，适合 smoke、回归和定位 `hook_format/filter`。
+
+注意：当前默认 kit 是 lite 包，不内置 Shopee APK。使用这个 smoke 前先确认设备已安装 `com.shopee.vn`；如果用户拿的是 full 包或自己把 APK 放进示例目录，`xfq run` 才可能自动安装。
 
 ## 9. 注入后端选择
 

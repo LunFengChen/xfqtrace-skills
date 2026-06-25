@@ -66,6 +66,10 @@ class Bundle:
         return self.bin_dir / "xfvmahide.kpm"
 
     @property
+    def xfinjectd_path(self) -> Path:
+        return self.bin_dir / "xfinjectd"
+
+    @property
     def seven_zip_path(self) -> Path | None:
         if platform.system().lower() == "windows":
             return _first_existing([self.bin_dir / "7z.exe", self.bin_dir / "7z"])
@@ -109,6 +113,7 @@ def validate_bundle_root(root: Path) -> Bundle:
     bundle = Bundle(root=root, manifest=manifest)
     required = [
         bundle.bin_dir / "libxfqtrace.so",
+        bundle.xfinjectd_path,
         bundle.entry,
         bundle.examples_dir / bundle.default_test / "半自动化trace.js",
     ]
@@ -128,8 +133,10 @@ def bundle_tool_status(bundle: Bundle) -> dict[str, Any]:
     seven_zip = bundle.bin_dir / "7z"
     seven_zip_exe = bundle.bin_dir / "7z.exe"
     kpm = bundle.xfvmahide_kpm
+    xfinjectd = bundle.xfinjectd_path
     return {
         "libxfqtrace": {"path": str(lib), "exists": lib.exists(), "required": True},
+        "xfinjectd": {"path": str(xfinjectd), "exists": xfinjectd.exists(), "required": True},
         "lz4": {"path": str(lz4), "exists": lz4.exists(), "required": False},
         "lz4_exe": {"path": str(lz4_exe), "exists": lz4_exe.exists(), "required": False},
         "pidcat": {"path": str(pidcat), "exists": pidcat.exists(), "required": False},
@@ -155,6 +162,7 @@ def chmod_bundle_tools(bundle: Bundle) -> None:
         bundle.bin_dir / "7z",
         bundle.bin_dir / "7z.exe",
         bundle.bin_dir / "xfvmahide.kpm",
+        bundle.bin_dir / "xfinjectd",
     ]:
         if not path.exists():
             continue

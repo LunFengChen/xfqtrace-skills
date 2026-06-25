@@ -175,7 +175,7 @@ def init(
         for name, item in tools.items():
             status = "✓" if item.get("exists") else ("必缺" if item.get("required") else "可选缺失")
             console.print(f"     {status} {name}: {item.get('path') or '<not found>'}")
-        console.print("   接下来: xfq doctor --serial <device> && xfq run test --serial <device>")
+        console.print("   接下来: xfq doctor --serial <device>；如设备已装 com.shopee.vn，可运行 xfq run test --serial <device>")
     except XfqError as exc:
         err_console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(1)

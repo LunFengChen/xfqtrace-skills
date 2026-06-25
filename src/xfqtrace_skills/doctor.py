@@ -217,6 +217,7 @@ def bundle_summary(bundle: Bundle | None) -> dict[str, Any]:
             "manifest": (bundle.root / "manifest.json").exists(),
             "entry": bundle.entry.exists(),
             "libxfqtrace": (bundle.bin_dir / "libxfqtrace.so").exists(),
+            "xfinjectd": bundle.xfinjectd_path.exists(),
             "default_sample": (bundle.examples_dir / bundle.default_test / "半自动化trace.js").exists(),
             "lz4": (bundle.bin_dir / "lz4").exists() or (bundle.bin_dir / "lz4.exe").exists(),
             "pidcat": (bundle.bin_dir / "pidcat").exists() or (bundle.bin_dir / "pidcat.exe").exists(),
