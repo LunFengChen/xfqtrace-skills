@@ -1,0 +1,3 @@
+include README.md
+recursive-include src/xfqtrace_skills/channels *.json
+recursive-include src/xfqtrace_skills/skills *.md *.yaml

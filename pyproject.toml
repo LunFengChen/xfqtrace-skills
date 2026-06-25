@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xfqtrace-skills"
+version = "0.1.0"
+description = "Agent skills and xfq CLI for private xfQTrace kits"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "LunFengChen"},
+]
+keywords = ["xfqtrace", "android", "reverse-engineering", "agent-skills", "claude", "codex"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Security",
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+    "pyzipper>=0.3",
+    "packaging>=23",
+]
+
+[project.urls]
+Homepage = "https://github.com/LunFengChen/xfqtrace-skills"
+Repository = "https://github.com/LunFengChen/xfqtrace-skills"
+
+[project.scripts]
+xfq = "xfqtrace_skills.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+xfqtrace_skills = [
+    "channels/*.json",
+    "skills/xfqtrace-workflow/SKILL.md",
+    "skills/xfqtrace-workflow/agents/*.yaml",
+]
