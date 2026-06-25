@@ -213,7 +213,26 @@ JNI 参数通常：`x0=JNIEnv*`，`x1=this/jclass`，业务参数从 `x2` 开始
 
 新样本不要一开始乱排除；先跑通最小配置，再按 trace 噪音和体积加。
 
-## 8. 注入后端选择
+## 8. Shopee 被动监听 + 主动调用模式
+
+Shopee 示例里有一类很适合回归的写法：先被动等目标 SO 加载并 arm trace，再主动调用 Java/JNI 入口，用 marker + filter 只捕获关心的那次 trace。遇到用户问“怎么稳定触发 Shopee / 怎么只抓自己构造的请求”时，优先看：
+
+```text
+examples/com.shopee.vn/半自动化trace_3.66.26.js
+examples/com.shopee.vn/主动调用验证.js
+```
+
+要点：
+
+- `android_dlopen_ext` 监听目标 `libshpssdk.so`，SO 一出现就 arm。
+- arm 成功后 `setTimeout(triggerTestCall, delay_ms)` 主动调用 `com.shopee.shpssdk.wvvvuwwu.vuwuuwvw(byte[], byte[])`。
+- payload 里写入 `TRACE_MARKER = "xfqtrace_manual_" + Date.now().toString(16)`。
+- `filter_expr` 按 marker 过滤，例如：`x3:jbarr contains hex('<marker>')`，避免把自然业务调用也抓进来。
+- 如果只验证 Java/JNI 主动调用是否可用，先跑 `主动调用验证.js`；它不加载 trace 引擎，只打印真实返回值。
+
+这个模式的价值是把“等待业务自然触发”变成“trace armed 后主动触发”，适合 smoke、回归和定位 `hook_format/filter`。
+
+## 9. 注入后端选择
 
 | 维度 | xfinject | frida-server |
 | --- | --- | --- |
@@ -231,7 +250,7 @@ adb -s <serial> shell su -c '/data/local/tmp/xj3 >/dev/null 2>&1 &'
 adb -s <serial> shell pidof xj3
 ```
 
-## 9. 失败诊断按这四类分
+## 10. 失败诊断按这四类分
 
 ### App 自身问题
 
@@ -265,7 +284,7 @@ adb -s <serial> shell am force-stop <package>
 - `skip: another trace is already in progress`：重入/并发触发，不是 Python 卡死。
 - `shadowhook init failed`：优先用 `inline_hook_backend: 2`。
 
-## 10. xfq clean 到底清什么
+## 11. xfq clean 到底清什么
 
 ```bash
 xfq clean --traces
@@ -284,7 +303,7 @@ xfq clean --all-versions   # 删除旧 kit 版本，保留当前版本
 xfq clean --version <v>    # 删除指定版本
 ```
 
-## 11. 反馈给用户/作者时要带这些
+## 12. 反馈给用户/作者时要带这些
 
 ```text
 package: <包名和版本>
