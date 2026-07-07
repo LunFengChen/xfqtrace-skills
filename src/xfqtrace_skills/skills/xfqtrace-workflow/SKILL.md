@@ -123,7 +123,7 @@ adb -s <serial> logcat -v threadtime -s xfQTrace
 `全自动化trace.py` 按顺序加载：
 
 1. `--script <path>`：完全使用指定 JS。
-2. `--recipe <path-or-name>`：指定 recipe；支持绝对/相对路径，也支持 `examples/<package>/recipes/<name>.json` 里的文件名/简写名。
+2. `--recipe <path-or-name>`：指定 recipe；支持绝对/相对路径，也支持包目录下的单个 JSON 文件。
 3. `examples/<package>/recipe.json`：推荐，新样本优先写它。
 4. `examples/<package>/半自动化trace.js`：旧 CONFIG 脚本。
 5. kit 根目录 `半自动化trace.js`：兜底。
@@ -155,6 +155,8 @@ adb -s <serial> logcat -v threadtime -s xfQTrace
 `app_version` 是备注字段，native 引擎不读取；它只表示这个 offset 是在哪个 App/APK 版本上确认的。未知就写 `"unknown"`，后面补。
 
 JSON 本身不支持注释，所以版本号直接写在 `app_version`；安装包来源、触发步骤、历史偏移等补充信息写到 `notes`，不要为了备注版本号改变目录结构。
+
+2.1+ kit 样本目录只保留一个 `examples/<package>/recipe.json`。如果要临时测试别的版本/偏移，单独放一个 JSON 并用 `--recipe <path>` 指定；不要在样本目录里维护 `recipes/` 子目录。
 
 常用 `options`：
 
@@ -244,7 +246,6 @@ Shopee 示例里有一类很适合回归的写法：先被动等目标 SO 加载
 
 ```text
 examples/com.shopee.vn/recipe.json
-examples/com.shopee.vn/recipes/3.66.26.json
 examples/com.shopee.vn/主动调用验证.js
 ```
 
