@@ -36,6 +36,8 @@ xfq init .\xfqtrace-kit-<version>.zip -p <password> --dir D:\xfqtrace
 
 `libxfqtrace.so` 和 `xfinjectd` 都是 kit 必需文件。因为默认后端是 `xfinject`，所以 `xfq init`/`xfq doctor` 如果报缺 `bin/xfinjectd`，不要继续跑默认 trace，应该让用户重新安装完整 kit；`xj3`/frida-server 仍然不随 kit 打包，只在用户显式选择 `--inject-backend frida-server` 时才需要。
 
+2.1+ kit 的样本可以只带 `examples/<package>/recipe.json`；`xfq init`/`xfq run` 必须兼容这种 recipe-only 样本，同时继续兼容 2.0 的 `半自动化trace.js` 样本。
+
 ## 2. AI 跑 trace 的命令
 
 进入 kit 根目录，或使用绝对路径调用：
@@ -73,6 +75,7 @@ python ./全自动化trace.py -p com.target.app --serial <serial> --inject-backe
 - 普通启动前脚本会先 `am force-stop <package>`。
 - 默认 auto-click 开启；默认不 `pm clear`，保留登录态/风控缓存。
 - 默认 `--log-viewer none`：不把 xfQTrace logcat 实时刷到 Python 控制台。
+- xfinject 后端会用通用 `-app-file` 把配置放到目标 App 的 `files/xfqtrace_config.json`，再通过 `xfqtrace_configure_file_and_start_async` 自启动；不要再按旧 `cache/xfqtrace_config.json` 排查。
 - 脚本会在设备侧录 `xfQTrace` 日志，结束/失败后拉回本地。
 
 ## 3. 产物和日志怎么看
@@ -120,21 +123,23 @@ adb -s <serial> logcat -v threadtime -s xfQTrace
 `全自动化trace.py` 按顺序加载：
 
 1. `--script <path>`：完全使用指定 JS。
-2. `examples/<package>/recipe.json`：推荐，新样本优先写它。
-3. `examples/<package>/半自动化trace.js`：旧 CONFIG 脚本。
-4. kit 根目录 `半自动化trace.js`：兜底。
+2. `--recipe <path-or-name>`：指定 recipe；支持绝对/相对路径，也支持 `examples/<package>/recipes/<name>.json` 里的文件名/简写名。
+3. `examples/<package>/recipe.json`：推荐，新样本优先写它。
+4. `examples/<package>/半自动化trace.js`：旧 CONFIG 脚本。
+5. kit 根目录 `半自动化trace.js`：兜底。
 
 ## 5. recipe.json 写法
 
-`recipe.json` 必须是 JSON 对象，至少包含 `target` 和 `options`。JSON 里 `offset` 写十进制；交流时可以写 `libxxx.so!0x偏移`。
+`recipe.json` 必须是 JSON 对象，至少包含 `target` 和 `options`。JSON 里 `offset` 统一写十六进制字符串，例如 `"0x1234"`；不要写十进制，也不要写运行时绝对地址。
 
 ```json
 {
   "package": "com.target.app",
+  "app_version": "1.2.3",
   "target": {
     "type": "func",
     "so_name": "libtarget.so",
-    "offset": 4660
+    "offset": "0x1234"
   },
   "options": {
     "inline_hook_backend": 2,
@@ -143,9 +148,13 @@ adb -s <serial> logcat -v threadtime -s xfQTrace
     "stop_condition": { "max_traces": 1 },
     "hook_format": { "args": "env,obj,jstr", "ret": "jstr" }
   },
-  "notes": "可选：版本、触发步骤、已知问题"
+  "notes": "可选：触发步骤、已知问题"
 }
 ```
+
+`app_version` 是备注字段，native 引擎不读取；它只表示这个 offset 是在哪个 App/APK 版本上确认的。未知就写 `"unknown"`，后面补。
+
+JSON 本身不支持注释，所以版本号直接写在 `app_version`；安装包来源、触发步骤、历史偏移等补充信息写到 `notes`，不要为了备注版本号改变目录结构。
 
 常用 `options`：
 
@@ -161,6 +170,9 @@ adb -s <serial> logcat -v threadtime -s xfQTrace
 | `memory_trace` | 内存访问记录，默认别开。 |
 | `sync_flush` | 排查最后日志时临时开，性能很差。 |
 | `logging` | native 日志节奏；不要把 pidcat/logcat 配到这里。 |
+| `multi_thread_trace` | 多线程命中同一目标时分别创建 VM/logger；默认关，确认需要抓并发时再开。 |
+| `trace_modules` | 默认排除的第三方库显式纳入，例如 `["libmmkv2.so"]`。 |
+| `exclude_modules` | 额外模块排除，适合确认只是噪音的 App SO。 |
 | `exclude` / `exclude_ranges` | 排除模块或地址段，减少公共库噪音。 |
 
 ## 6. hook_format 速查
@@ -207,6 +219,17 @@ JNI 参数通常：`x0=JNIEnv*`，`x1=this/jclass`，业务参数从 `x2` 开始
 "exclude": { "modules": ["libc.so", "libart.so", "liblog.so"] }
 ```
 
+默认模块策略是 anchor SO 一定纳入、App SO/匿名段 on-demand 纳入、系统/运行时/trace 工具自身硬排除，常见第三方基础库如 `libmmkv*`、`libprotobuf*`、`libfbjni*`、`libcurl*`、`libcrypto.so`、`libssl.so`、`libc++_shared.so` 默认不 on-demand 纳入。需要覆盖时用：
+
+```json
+"trace_modules": ["libmmkv2.so"],
+"exclude_modules": ["libnoise.so"]
+```
+
+优先级是：硬排除和 `exclude_modules` > `trace_modules` > 默认第三方排除 > on-demand 分类。
+
+`multi_thread_trace=true` 会让多个线程命中同一目标时各自创建独立 QBDI VM 和 `_t<tid>` trace 文件；它不排队、不改变 App 调度，但文件会更多更大。
+
 ```json
 "exclude_ranges": [
   { "start": "0x7000000000", "end": "0x7000010000", "reason": "known dispatcher" }
@@ -220,7 +243,8 @@ JNI 参数通常：`x0=JNIEnv*`，`x1=this/jclass`，业务参数从 `x2` 开始
 Shopee 示例里有一类很适合回归的写法：先被动等目标 SO 加载并 arm trace，再主动调用 Java/JNI 入口，用 marker + filter 只捕获关心的那次 trace。遇到用户问“怎么稳定触发 Shopee / 怎么只抓自己构造的请求”时，优先看：
 
 ```text
-examples/com.shopee.vn/半自动化trace_3.66.26.js
+examples/com.shopee.vn/recipe.json
+examples/com.shopee.vn/recipes/3.66.26.json
 examples/com.shopee.vn/主动调用验证.js
 ```
 
@@ -275,7 +299,7 @@ adb -s <serial> shell su -c 'pkill -f xj3; pkill -f frida-server; true'
 adb -s <serial> shell am force-stop <package>
 ```
 
-排查旧进程、旧 `/data/data/<package>/cache/xfqtrace_config.json`、选错 serial、frida-server 残留。
+排查旧进程、旧 `/data/data/<package>/files/xfqtrace_config.json`、选错 serial、frida-server 残留。
 
 ### Frida 检测没过
 

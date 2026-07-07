@@ -19,7 +19,8 @@ class TraceTarget:
     name: str
     package: str
     root: Path
-    script: Path
+    recipe: Path | None
+    script: Path | None
     apk: Path | None
     default_args: list[str]
 
@@ -42,7 +43,8 @@ def _first_app_package(root: Path) -> Path | None:
 def load_recipe(name: str, bundle: Bundle | None = None) -> TraceTarget:
     """Resolve a CLI target to the kit entry script inputs.
 
-    Kept as load_recipe for old imports; there is no user-facing recipe file.
+    Kept as load_recipe for old imports. 2.1+ kits prefer recipe.json;
+    2.0-style 半自动化trace.js samples remain supported.
     """
     bundle = bundle or load_active_bundle()
     target = bundle.default_test if name == "test" else name
@@ -56,20 +58,25 @@ def load_recipe(name: str, bundle: Bundle | None = None) -> TraceTarget:
             root = legacy
 
     package = SMOKE_PACKAGE if target == SMOKE_PACKAGE else target
-    script = root / DEFAULT_SCRIPT
-    if not script.exists() and target == SMOKE_PACKAGE:
-        fallback = _first_existing([
+    recipe = root / "recipe.json"
+    if not recipe.exists():
+        recipe = None
+
+    script: Path | None = root / DEFAULT_SCRIPT
+    if script is not None and not script.exists() and target == SMOKE_PACKAGE:
+        script = _first_existing([
             root / "半自动化trace_3.71.31.js",
             root / "半自动化trace_3.66.26.js",
         ])
-        if fallback:
-            script = fallback
+    if script is not None and not script.exists():
+        script = None
 
     apk = _first_app_package(root)
     return TraceTarget(
         name=name,
         package=package,
         root=root,
+        recipe=recipe,
         script=script,
         apk=apk,
         default_args=list(DEFAULT_RUN_ARGS),
@@ -112,17 +119,19 @@ def build_run_command(
     target = load_recipe(target_name, bundle)
     if not bundle.entry.exists():
         raise XfqError(f"kit entry not found: {bundle.entry}")
-    if not target.script.exists():
-        raise XfqError(f"sample script not found: {target.script}")
     cmd = [
         sys.executable,
         "-u",
         str(bundle.entry),
         "-p",
         target.package,
-        "--script",
-        str(target.script),
     ]
+    if target.recipe is not None and target.recipe.exists():
+        cmd += ["--recipe", str(target.recipe)]
+    elif target.script is not None and target.script.exists():
+        cmd += ["--script", str(target.script)]
+    else:
+        raise XfqError(f"sample recipe/script not found: {target.root}")
     if serial:
         cmd += ["--serial", serial]
     cmd += target.default_args
@@ -171,7 +180,11 @@ def list_recipes(bundle: Bundle | None = None) -> list[dict[str, Any]]:
     for child in sorted(bundle.examples_dir.iterdir()):
         if not child.is_dir():
             continue
-        if not (child / DEFAULT_SCRIPT).exists() and not any(child.glob("半自动化trace_*.js")):
+        if (
+            not (child / "recipe.json").exists()
+            and not (child / DEFAULT_SCRIPT).exists()
+            and not any(child.glob("半自动化trace_*.js"))
+        ):
             continue
         package = SMOKE_PACKAGE if child.name in {"shp", "shopee"} else child.name
         out.append({"name": child.name, "package": package, "default": package == bundle.default_test or child.name == bundle.default_test})

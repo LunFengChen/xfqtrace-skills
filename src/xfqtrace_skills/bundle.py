@@ -88,6 +88,16 @@ def _first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
+def default_sample_entry(bundle: Bundle) -> Path | None:
+    root = bundle.examples_dir / bundle.default_test
+    return _first_existing([
+        root / "recipe.json",
+        root / "半自动化trace.js",
+        root / "半自动化trace_3.71.31.js",
+        root / "半自动化trace_3.66.26.js",
+    ])
+
+
 def load_manifest(root: Path) -> dict[str, Any]:
     path = root / "manifest.json"
     if not path.exists():
@@ -115,9 +125,10 @@ def validate_bundle_root(root: Path) -> Bundle:
         bundle.bin_dir / "libxfqtrace.so",
         bundle.xfinjectd_path,
         bundle.entry,
-        bundle.examples_dir / bundle.default_test / "半自动化trace.js",
     ]
     missing = [str(p.relative_to(root)) for p in required if not p.exists()]
+    if default_sample_entry(bundle) is None:
+        missing.append(f"examples/{bundle.default_test}/recipe.json 或 半自动化trace.js")
     if missing:
         raise XfqError("kit 缺少必要文件: " + ", ".join(missing))
     return bundle

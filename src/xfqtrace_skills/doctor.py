@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from . import __version__
-from .bundle import Bundle, XfqError, bundle_tool_status, load_active_bundle, list_versions, validate_bundle_root
+from .bundle import Bundle, XfqError, bundle_tool_status, default_sample_entry, load_active_bundle, list_versions, validate_bundle_root
 from .skill_install import skill_status
 from .update_check import fetch_channel, newer
 
@@ -218,7 +218,7 @@ def bundle_summary(bundle: Bundle | None) -> dict[str, Any]:
             "entry": bundle.entry.exists(),
             "libxfqtrace": (bundle.bin_dir / "libxfqtrace.so").exists(),
             "xfinjectd": bundle.xfinjectd_path.exists(),
-            "default_sample": (bundle.examples_dir / bundle.default_test / "半自动化trace.js").exists(),
+            "default_sample": default_sample_entry(bundle) is not None,
             "lz4": (bundle.bin_dir / "lz4").exists() or (bundle.bin_dir / "lz4.exe").exists(),
             "pidcat": (bundle.bin_dir / "pidcat").exists() or (bundle.bin_dir / "pidcat.exe").exists(),
             "7z": (bundle.bin_dir / "7z").exists() or (bundle.bin_dir / "7z.exe").exists(),
