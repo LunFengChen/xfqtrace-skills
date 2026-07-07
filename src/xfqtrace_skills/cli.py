@@ -113,6 +113,11 @@ def _auto_update_check() -> None:
         bundle_version = None
         engine_version = None
 
+    latest_cli = channel.get("cli_version")
+    if newer(latest_cli, __version__):
+        _prompt_cli_update(str(latest_cli))
+        return
+
     latest_bundle = channel.get("latest_bundle_version")
     latest_engine = channel.get("latest_engine_version")
     if newer(latest_engine, engine_version) or newer(latest_bundle, bundle_version):
@@ -120,10 +125,6 @@ def _auto_update_check() -> None:
             f"[yellow]xfQTrace kit 有新版本[/yellow]: {latest_bundle or latest_engine}，请进入 x1a0f3n9 知识星球下载最新版，然后运行 `xfq init <zip> -p <password>`"
         )
         return
-
-    latest_cli = channel.get("cli_version")
-    if newer(latest_cli, __version__):
-        _prompt_cli_update(str(latest_cli))
 
 
 @app.callback()
@@ -327,7 +328,8 @@ def version(json_output: bool = typer.Option(False, "--json", help="输出 JSON"
     console.print(f"xfq cli: {__version__}")
     console.print(f"active kit: {bundle_version or '<not installed>'}")
     if channel:
-        console.print(f"latest known kit: {channel.get('latest_bundle_version')}")
+        if channel.get("latest_bundle_version"):
+            console.print(f"latest known kit: {channel.get('latest_bundle_version')}")
         if obj["bundle_update_available"]:
             console.print(f"[yellow]update:[/yellow] {channel.get('download_hint')}")
         if obj["cli_update_available"]:

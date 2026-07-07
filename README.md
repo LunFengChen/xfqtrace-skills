@@ -103,15 +103,32 @@ xfq update
 xfq update -y
 ```
 
-这个公开仓库不包含私有 kit、APK、辅助脚本或密码；kit/libxfqtrace 更新需要重新去知识星球下载 zip，然后再 `xfq init <new-kit.zip> -p <password> --force`。
+0.1.2 用户建议先升级 CLI，再安装后续新 kit：
+
+```bash
+xfq update -y
+xfq version
+```
+
+发布私有 kit 新版本时，公开 pip 包仍不包含 kit、APK、辅助脚本或密码。用户流程是先从知识星球下载 zip，再安装/覆盖当前 kit：
+
+```bash
+xfq init ./xfqtrace-kit-2.1.zip -p <password> --force
+xfq doctor --serial <device-serial>
+xfq run test --serial <device-serial> --dry-run
+```
+
+发布顺序应保持：先发布兼容新布局的 `xfqtrace-skills`，更新通道先只放 `cli_version`、不要提前放新 kit；等 PyPI 上能安装新 CLI 后，再把更新通道里的 `latest_bundle_version` 改到新 kit 版本。这样旧用户会先升级 CLI，不会拿老 CLI 去装新布局 kit。
 
 ## kit/bin 工具检查
 
-`xfq init` 会显示 `kit/bin` 里的工具状态；`xfq doctor --json` 里也有 `bundle.bundled_tools`：
+`xfq init` 会显示 `kit/bin` 里的工具状态；`xfq doctor --json` 里也有 `bundle.bundled_tools` 和 `bundle.artifact_versions`：
 
 - 必须：`libxfqtrace.so`、`xfinjectd`
 - 建议：`lz4`、`lz4.exe`、`pidcat`、`pidcat.exe`、`7z`、`7z.exe`
 - 可选：`xfvmahide.kpm`
+
+`bundle.artifact_versions` 会尽量从本地文件里读出 `libxfqtrace.so` 的 banner/version，以及 `xfinjectd` 的 Go build info / git revision；这只做本地静态识别，不会执行 Android 二进制。
 
 默认后端是 `xfinject`，所以 kit 里缺 `bin/xfinjectd` 就不是“可选缺失”，而是这个 kit 不能正常跑默认链路，需要重新获取/安装完整 kit。
 
