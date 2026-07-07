@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -169,6 +170,106 @@ def _run_kpm_test(result: dict[str, Any], serial: str, superkey: str) -> dict[st
     return result
 
 
+
+
+def _ascii_strings(path: Path, *, min_len: int = 4, max_bytes: int = 64 * 1024 * 1024) -> list[str]:
+    """Extract printable strings from a local artifact without executing it."""
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return []
+    if len(data) > max_bytes:
+        # Build/version metadata is in normal rodata/buildinfo for our artifacts;
+        # cap reads so doctor cannot become unexpectedly heavy on broken files.
+        data = data[:max_bytes]
+    return [m.group(0).decode("utf-8", "replace") for m in re.finditer(rb"[\x20-\x7e]{%d,}" % min_len, data)]
+
+
+def _first_preferring(values: list[str], preferred: tuple[str, ...]) -> str | None:
+    for needle in preferred:
+        for value in values:
+            if needle in value:
+                return value
+    return values[0] if values else None
+
+
+def _detect_libxfqtrace_version(path: Path) -> dict[str, Any]:
+    info: dict[str, Any] = {"path": str(path), "exists": path.exists()}
+    if not path.exists():
+        return info
+    strings = _ascii_strings(path)
+    candidates: list[str] = []
+    version_re = re.compile(r"^v\d+(?:\.\d+)+(?:[-+._A-Za-z0-9]*)?$")
+    for item in strings:
+        if len(item) <= 48 and version_re.match(item):
+            candidates.append(item)
+    version = _first_preferring(candidates, ("-g", "v2.", "v1."))
+    banner = next((x for x in strings if "xfQTrace" in x and "build" in x), None)
+    info.update({
+        "version": version,
+        "banner": banner,
+    })
+    return info
+
+
+def _parse_go_buildinfo(path: Path) -> dict[str, Any]:
+    info: dict[str, Any] = {"path": str(path), "exists": path.exists()}
+    if not path.exists():
+        return info
+    strings = _ascii_strings(path)
+    go_version = next((x for x in strings if re.fullmatch(r"go\d+\.\d+(?:\.\d+)?", x)), None)
+    module_path = None
+    module_version = None
+    build: dict[str, str] = {}
+    try:
+        data = path.read_bytes()
+    except OSError:
+        data = b""
+    for raw in re.findall(rb"(?:path|mod|build)\t[^\x00\r\n]+", data):
+        item = raw.decode("utf-8", "replace")
+        if item.startswith("path\t"):
+            info["main_path"] = item.split("\t", 1)[1]
+        elif item.startswith("mod\t"):
+            parts = item.split("\t")
+            if len(parts) >= 3:
+                module_path, module_version = parts[1], parts[2]
+        elif item.startswith("build\t"):
+            payload = item.split("\t", 1)[1]
+            if "=" in payload:
+                key, value = payload.split("=", 1)
+                build[key] = value
+    if go_version:
+        info["go_version"] = go_version
+    if module_path:
+        info["module"] = module_path
+        info["module_version"] = module_version
+    if build:
+        info["build"] = build
+        if rev := build.get("vcs.revision"):
+            info["revision"] = rev
+            info["short_revision"] = rev[:12]
+        if t := build.get("vcs.time"):
+            info["time"] = t
+        if m := build.get("vcs.modified"):
+            info["modified"] = m.lower() == "true"
+        if goos := build.get("GOOS"):
+            info["goos"] = goos
+        if goarch := build.get("GOARCH"):
+            info["goarch"] = goarch
+    return info
+
+
+def bundle_artifact_versions(bundle: Bundle | None) -> dict[str, Any]:
+    if bundle is None:
+        return {}
+    return {
+        "xfqtrace": _detect_libxfqtrace_version(bundle.bin_dir / "libxfqtrace.so"),
+        "xfinject": _parse_go_buildinfo(bundle.xfinjectd_path),
+    }
+
+
 def _detect_local_bundle() -> Bundle | None:
     """Detect a kit from current working directory or its parents.
 
@@ -213,6 +314,7 @@ def bundle_summary(bundle: Bundle | None) -> dict[str, Any]:
         "bundled_tools": tools,
         "missing_required": missing_required,
         "missing_recommended": missing_recommended,
+        "artifact_versions": bundle_artifact_versions(bundle),
         "checks": {
             "manifest": (bundle.root / "manifest.json").exists(),
             "entry": bundle.entry.exists(),
@@ -302,6 +404,16 @@ def print_human_doctor(result: dict[str, Any]) -> str:
     if bundle.get("installed"):
         v = bundle.get("bundle_version") or "?"
         lines.append(f"  kit      v{v}")
+        artifacts = bundle.get("artifact_versions") or {}
+        xfq = artifacts.get("xfqtrace") or {}
+        xfi = artifacts.get("xfinject") or {}
+        if xfq.get("version") or xfi.get("short_revision"):
+            lines.append(
+                "           "
+                f"xfqtrace={xfq.get('version') or 'unknown'}  "
+                f"xfinject={xfi.get('short_revision') or xfi.get('module_version') or 'unknown'}"
+                f"{' dirty' if xfi.get('modified') else ''}"
+            )
         mr = bundle.get("missing_required", [])
         if mr:
             lines.append(f"           [red]缺必要工具: {', '.join(mr)}[/red]")
