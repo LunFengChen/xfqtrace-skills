@@ -33,6 +33,33 @@ def _run(cmd: list[str], timeout: int = 8) -> tuple[int, str, str]:
         return 999, "", str(exc)
 
 
+def _tool_version(path: str | None, kind: str) -> str | None:
+    if not path:
+        return None
+    if kind == "adb":
+        rc, out, err = _run([path, "version"], timeout=3)
+        text = "\n".join(x for x in [out, err] if x)
+        m = re.search(r"\bversion\s+([0-9][0-9A-Za-z.+_-]*)", text, re.I)
+        return m.group(1) if rc == 0 and m else None
+    if kind == "lz4":
+        rc, out, err = _run([path, "--version"], timeout=3)
+        text = "\n".join(x for x in [out, err] if x)
+        m = re.search(r"\bv?([0-9]+(?:\.[0-9]+)+(?:[-+._A-Za-z0-9]*)?)\b", text)
+        return m.group(1) if rc == 0 and m else None
+    if kind == "pidcat":
+        rc, out, err = _run([path, "--version"], timeout=3)
+        text = "\n".join(x for x in [out, err] if x)
+        m = re.search(r"\bpidcat\s+([0-9]+(?:\.[0-9]+)+(?:[-+._A-Za-z0-9]*)?)\b", text, re.I)
+        return m.group(1) if rc == 0 and m else None
+    if kind == "7z":
+        rc, out, err = _run([path], timeout=3)
+        text = "\n".join(x for x in [out, err] if x)
+        m = re.search(r"\b7-Zip\b.*?\b([0-9]+(?:\.[0-9]+)+(?:[-+._A-Za-z0-9]*)?)\b", text)
+        # 7z prints usage and exits 0 on Linux p7zip; tolerate non-zero variants.
+        return m.group(1) if m else None
+    return None
+
+
 def _adb(serial: str | None, *args: str, timeout: int = 8) -> tuple[int, str, str]:
     cmd = ["adb"]
     if serial:
@@ -388,6 +415,9 @@ def doctor(
         bundle = _detect_local_bundle()
 
     adb_path = shutil.which("adb")
+    lz4_path = shutil.which("lz4")
+    pidcat_path = shutil.which("pidcat") or shutil.which("pidcat.exe")
+    seven_zip_path = shutil.which("7z") or shutil.which("7z.exe")
     frida_py = _dist_version("frida")
     frida_tools = _dist_version("frida-tools")
     result: dict[str, Any] = {
@@ -398,9 +428,13 @@ def doctor(
             "python_frida": frida_py,
             "frida_tools": frida_tools,
             "adb": adb_path,
-            "lz4_path": shutil.which("lz4"),
-            "pidcat_path": shutil.which("pidcat") or shutil.which("pidcat.exe"),
-            "7z_path": shutil.which("7z") or shutil.which("7z.exe"),
+            "adb_version": _tool_version(adb_path, "adb"),
+            "lz4_path": lz4_path,
+            "lz4_version": _tool_version(lz4_path, "lz4"),
+            "pidcat_path": pidcat_path,
+            "pidcat_version": _tool_version(pidcat_path, "pidcat"),
+            "7z_path": seven_zip_path,
+            "7z_version": _tool_version(seven_zip_path, "7z"),
         },
         "backend_notes": {
             "default_backend": "xfinject",
@@ -459,17 +493,28 @@ def doctor(
     return result
 
 
+
+
+def display_plain_version(version: Any) -> str:
+    if version is None or version == "":
+        return "unknown"
+    text = str(version)
+    if re.match(r"^v\d+(?:\.\d+)+(?:[-+._A-Za-z0-9]*)?$", text):
+        return text[1:]
+    return text
+
 def print_human_doctor(result: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("═" * 54)
+    lines.append(f"  xfqtrace-skills  version={display_plain_version(result.get('xfq_cli_version'))}")
+    lines.append("─" * 54)
 
     def yn(ok: bool) -> str:
         return "OK" if ok else "MISSING"
 
     bundle = result.get("bundle", {})
     if bundle.get("installed"):
-        v = bundle.get("bundle_version") or "?"
-        lines.append(f"  kit      v{v}")
+        lines.append("  xfqtrace-kit")
         artifacts = bundle.get("artifact_versions") or {}
         xfq = artifacts.get("xfqtrace") or {}
         xfi = artifacts.get("xfinject") or {}
@@ -498,6 +543,9 @@ def print_human_doctor(result: dict[str, Any]) -> str:
                 problem = "no superkey"
             xfv_status_extra = f"device not checked: {problem}"
 
+        def display_version(version: str | None) -> str:
+            return display_plain_version(version)
+
         def component_row(
             name: str,
             version: str | None,
@@ -517,7 +565,7 @@ def print_human_doctor(result: dict[str, Any]) -> str:
                 status = f"{status}; {status_extra}"
             return (
                 f"           {name:<10} "
-                f"version={version or 'unknown'}  "
+                f"version={display_version(version)}  "
                 f"commit={commit or 'unknown'}  "
                 f"status={status}"
             )
@@ -554,7 +602,7 @@ def print_human_doctor(result: dict[str, Any]) -> str:
         if bundle.get("source") == "local":
             lines.append("           (local repo, 未 xfq init)")
     else:
-        lines.append(f"  kit      [red]未安装[/red]")
+        lines.append(f"  xfqtrace-kit  [red]未安装[/red]")
 
     device = result.get("device")
     if device:
@@ -573,11 +621,18 @@ def print_human_doctor(result: dict[str, Any]) -> str:
 
     lines.append("─" * 54)
     tools = result.get("tools", {})
-    lines.append(f"  tools    adb={yn(bool(tools.get('adb')))}"
-                 f"  lz4={yn(bool(tools.get('lz4_path')))}"
-                 f"  pidcat={yn(bool(tools.get('pidcat_path')))}"
-                 f"  7z={yn(bool(tools.get('7z_path')))}")
+    def tool_row(name: str, path_key: str, version_key: str) -> str:
+        exists = bool(tools.get(path_key))
+        version = tools.get(version_key) or "unknown"
+        return f"           {name:<6} version={version:<8} status={yn(exists)}"
+
+    lines.append("  tools")
+    lines.append(tool_row("adb", "adb", "adb_version"))
+    lines.append(tool_row("lz4", "lz4_path", "lz4_version"))
+    lines.append(tool_row("pidcat", "pidcat_path", "pidcat_version"))
+    lines.append(tool_row("7z", "7z_path", "7z_version"))
     lines.append("─" * 54)
-    lines.append(f"  frida    py={tools.get('python_frida') or 'missing'}"
-                 f"  tools={tools.get('frida_tools') or 'missing'}")
+    lines.append("  frida")
+    lines.append(f"           frida={tools.get('python_frida') or 'missing'}")
+    lines.append(f"           frida-tools={tools.get('frida_tools') or 'missing'}")
     return "\n".join(lines)

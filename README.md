@@ -36,6 +36,7 @@ xfq run test --serial <device-serial> --inject-backend frida-server
 | `xfq run test --serial <device> --dry-run` | 用当前真实 kit 检查将执行的命令；lite kit 不含 APK，Shopee 需预装 |
 | `xfq clean --traces -y` | 清理本机 kit/examples 下的 trace/logcat 产物 |
 | `xfq clean --all-versions -y` | 删除非当前版本的旧 kit |
+| 建议定期清理 | 长 trace 会持续占用空间，定期执行 `xfq clean --traces -y`；确认不需要旧版时再执行 `xfq clean --all-versions -y` |
 | `xfq update` | 更新 xfqtrace-skills 包并刷新技能 |
 | `xfq skill install --target both --force` | 安装/刷新技能 |
 

@@ -327,6 +327,8 @@ xfq clean --traces
 
 不会清设备 `/sdcard`、不会清 `/data/data/<package>`、不会 `pm clear`。
 
+长 trace 很容易在 `examples/*/xfqtrace_logs/` 下累积大量文件，建议用户定期执行 `xfq clean --traces -y`；确认旧 kit 版本不再需要时再执行 `xfq clean --all-versions -y`。
+
 ```bash
 xfq clean --all-versions   # 删除旧 kit 版本，保留当前版本
 xfq clean --version <v>    # 删除指定版本
