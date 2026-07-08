@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
-import queue
 import re
 import shlex
 import shutil
 import subprocess
-import threading
-import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 import os
@@ -19,7 +16,6 @@ from .bundle import Bundle, XfqError, bundle_tool_status, default_sample_entry, 
 from .skill_install import skill_status
 from .update_check import fetch_channel, newer
 
-XFINJECT_TAGS_URL = "https://api.github.com/repos/LunFengChen/xfinject/tags?per_page=100"
 
 
 def _dist_version(name: str) -> str | None:
@@ -200,6 +196,21 @@ def _first_preferring(values: list[str], preferred: tuple[str, ...]) -> str | No
     return values[0] if values else None
 
 
+def _detect_file_artifact(path: Path) -> dict[str, Any]:
+    info: dict[str, Any] = {"path": str(path), "exists": path.exists()}
+    if not path.exists():
+        return info
+    strings = _ascii_strings(path)
+    version = None
+    for item in strings:
+        if item.startswith("version="):
+            version = item.split("=", 1)[1]
+            break
+    if version:
+        info["version"] = version
+    return info
+
+
 def _detect_libxfqtrace_version(path: Path) -> dict[str, Any]:
     info: dict[str, Any] = {"path": str(path), "exists": path.exists()}
     if not path.exists():
@@ -266,68 +277,41 @@ def _parse_go_buildinfo(path: Path) -> dict[str, Any]:
     return info
 
 
-def _fetch_xfinject_release_tag(revision: str, timeout: float = 2.0) -> tuple[str | None, str | None]:
-    """Best-effort mapping from xfinject git revision to public release tag.
-
-    The xfinject binary is an Android executable, so doctor must not execute it
-    on the host.  We instead read Go buildinfo locally and, when update checks
-    are enabled, ask GitHub which published tag points at that commit.  Network
-    failures are non-fatal; callers still have the embedded commit.
-    """
-    if not revision:
-        return None, None
-
-    out: "queue.Queue[tuple[str | None, str | None]]" = queue.Queue(maxsize=1)
-
-    def worker() -> None:
-        try:
-            req = urllib.request.Request(
-                XFINJECT_TAGS_URL,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "User-Agent": "xfqtrace-skills doctor",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                tags = json.loads(resp.read().decode("utf-8"))
-            for item in tags:
-                commit = item.get("commit") or {}
-                if commit.get("sha") == revision:
-                    out.put((item.get("name"), None))
-                    return
-            out.put((None, "no matching public tag"))
-        except Exception as exc:
-            out.put((None, str(exc)))
-
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-    try:
-        return out.get(timeout=timeout)
-    except queue.Empty:
-        return None, f"timeout after {timeout:.1f}s"
-
-
-def _resolve_xfinject_release(info: dict[str, Any]) -> dict[str, Any]:
-    revision = info.get("revision")
-    if not revision:
+def _apply_manifest_component(info: dict[str, Any], component: Any) -> dict[str, Any]:
+    if not isinstance(component, dict):
         return info
-    tag, err = _fetch_xfinject_release_tag(str(revision))
-    if tag:
-        info["release_tag"] = tag
-    elif err:
-        info["release_lookup_error"] = err
+    if version := component.get("version"):
+        info.setdefault("version", str(version))
+    commit = component.get("commit") or component.get("revision")
+    if commit:
+        commit = str(commit)
+        info["revision"] = commit
+        info["short_revision"] = commit[:12]
+    if component.get("dirty"):
+        info["modified"] = True
     return info
 
 
 def bundle_artifact_versions(bundle: Bundle | None, *, resolve_remote: bool = False) -> dict[str, Any]:
     if bundle is None:
         return {}
-    xfinject = _parse_go_buildinfo(bundle.xfinjectd_path)
-    if resolve_remote:
-        xfinject = _resolve_xfinject_release(xfinject)
+    components = bundle.manifest.get("components") or {}
+    xfqtrace = _apply_manifest_component(
+        _detect_libxfqtrace_version(bundle.bin_dir / "libxfqtrace.so"),
+        components.get("xfqtrace"),
+    )
+    xfinject = _apply_manifest_component(
+        _parse_go_buildinfo(bundle.xfinjectd_path),
+        components.get("xfinject"),
+    )
+    xfvmahide = _apply_manifest_component(
+        _detect_file_artifact(bundle.xfvmahide_kpm),
+        components.get("xfvmahide"),
+    )
     return {
-        "xfqtrace": _detect_libxfqtrace_version(bundle.bin_dir / "libxfqtrace.so"),
+        "xfqtrace": xfqtrace,
         "xfinject": xfinject,
+        "xfvmahide": xfvmahide,
     }
 
 
@@ -434,15 +418,33 @@ def doctor(
         result["adb_devices"] = {"ok": rc == 0, "stdout": out, "stderr": err}
         if serial:
             rc, out, err = _adb(serial, "shell", "echo", "ok")
-            result["device"] = {"serial": serial, "online": rc == 0 and out.strip() == "ok", "error": err}
-            rc, out, err = _adb(serial, "shell", "if [ -x /data/local/tmp/xj3 ]; then echo exists; fi; pidof xj3 || true")
-            result["frida_server"] = {
-                "xj3_exists": "exists" in out,
-                "pidof": out.replace("exists", "").strip(),
-                "recommended": "16.5.7（only needed with --inject-backend frida-server）",
-                "bundled": False,
-                "error": err,
-            }
+            online = rc == 0 and out.strip() == "ok"
+            device_info: dict[str, Any] = {"serial": serial, "online": online, "error": err}
+            if online:
+                rc_props, props_out, props_err = _adb(
+                    serial,
+                    "shell",
+                    "getprop ro.product.manufacturer; "
+                    "getprop ro.product.model; "
+                    "getprop ro.product.device; "
+                    "getprop ro.build.version.release; "
+                    "getprop ro.build.version.sdk; "
+                    "getprop ro.product.cpu.abi",
+                    timeout=8,
+                )
+                vals = [line.strip() for line in (props_out or "").splitlines()]
+                if rc_props == 0 and len(vals) >= 6:
+                    device_info.update({
+                        "manufacturer": vals[0],
+                        "model": vals[1],
+                        "device": vals[2],
+                        "android": vals[3],
+                        "sdk": vals[4],
+                        "abi": vals[5],
+                    })
+                elif props_err:
+                    device_info["props_error"] = props_err
+            result["device"] = device_info
             result["kpm"] = kpm_status(bundle, serial, install=install_kpm, superkey=kpm_superkey)
 
     if check_updates:
@@ -461,6 +463,9 @@ def print_human_doctor(result: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("═" * 54)
 
+    def yn(ok: bool) -> str:
+        return "OK" if ok else "MISSING"
+
     bundle = result.get("bundle", {})
     if bundle.get("installed"):
         v = bundle.get("bundle_version") or "?"
@@ -468,22 +473,79 @@ def print_human_doctor(result: dict[str, Any]) -> str:
         artifacts = bundle.get("artifact_versions") or {}
         xfq = artifacts.get("xfqtrace") or {}
         xfi = artifacts.get("xfinject") or {}
+        xfv = artifacts.get("xfvmahide") or {}
+        checks = bundle.get("checks") or {}
         module_version = xfi.get("module_version")
         if module_version in {None, "", "(devel)"}:
             module_version = None
         xfi_version = xfi.get("release_tag") or module_version
-        xfi_rev = xfi.get("short_revision")
-        if xfi_version and xfi_rev:
-            xfi_display = f"{xfi_version}({xfi_rev})"
-        else:
-            xfi_display = xfi_rev or xfi_version or "unknown"
-        if xfq.get("version") or xfi_display != "unknown":
-            lines.append(
-                "           "
-                f"xfqtrace={xfq.get('version') or 'unknown'}  "
-                f"xfinject={xfi_display}"
-                f"{' dirty' if xfi.get('modified') else ''}"
+        kpm = result.get("kpm")
+        xfv_status_extra = None
+        if kpm and kpm.get("checked"):
+            if kpm.get("installed"):
+                test = kpm.get("test") or {}
+                if test.get("passed"):
+                    xfv_status_extra = "kpm installed/test OK"
+                elif test.get("skipped"):
+                    xfv_status_extra = "kpm installed/test skipped"
+                else:
+                    xfv_status_extra = "kpm installed"
+            else:
+                xfv_status_extra = "kpm not installed"
+        elif kpm and not kpm.get("checked") and kpm.get("problem"):
+            problem = str(kpm.get("problem"))
+            if "no KPM superkey" in problem:
+                problem = "no superkey"
+            xfv_status_extra = f"device not checked: {problem}"
+
+        def component_row(
+            name: str,
+            version: str | None,
+            commit: str | None,
+            *,
+            exists: bool = True,
+            dirty: bool = False,
+            status_extra: str | None = None,
+        ) -> str:
+            if not exists:
+                status = "missing"
+            elif dirty:
+                status = "dirty"
+            else:
+                status = "clean"
+            if status_extra:
+                status = f"{status}; {status_extra}"
+            return (
+                f"           {name:<10} "
+                f"version={version or 'unknown'}  "
+                f"commit={commit or 'unknown'}  "
+                f"status={status}"
             )
+
+        lines.append(component_row(
+            "xfqtrace",
+            xfq.get("version"),
+            xfq.get("short_revision"),
+            exists=bool(xfq.get("exists")),
+            dirty=bool(xfq.get("modified")),
+        ))
+        lines.append(component_row(
+            "xfinject",
+            xfi_version,
+            xfi.get("short_revision"),
+            exists=bool(xfi.get("exists")),
+            dirty=bool(xfi.get("modified")),
+        ))
+        lines.append(component_row(
+            "xfvmahide",
+            xfv.get("version"),
+            xfv.get("short_revision"),
+            exists=bool(checks.get("xfvmahide_kpm")),
+            dirty=bool(xfv.get("modified")),
+            status_extra=xfv_status_extra,
+        ))
+        if kpm and not kpm.get("checked") and kpm.get("local_kpm_exists"):
+            lines.append("                     cmd: xfq doctor --serial <serial> --install-kpm --kpm-superkey <key>")
         mr = bundle.get("missing_required", [])
         if mr:
             lines.append(f"           [red]缺必要工具: {', '.join(mr)}[/red]")
@@ -496,34 +558,26 @@ def print_human_doctor(result: dict[str, Any]) -> str:
 
     device = result.get("device")
     if device:
+        lines.append("─" * 54)
+    if device:
         serial = device.get("serial", "?")
         ok = device.get("online", False)
         lines.append(f"  device   {'OK' if ok else 'FAIL'}  serial={serial}")
+        if ok:
+            android = device.get("android") or "?"
+            sdk = device.get("sdk") or "?"
+            model = " ".join(x for x in [device.get("manufacturer"), device.get("model")] if x) or "?"
+            codename = device.get("device") or "?"
+            abi = device.get("abi") or "?"
+            lines.append(f"           android={android} sdk={sdk}  model={model} ({codename})  abi={abi}")
 
-    frida = result.get("frida_server")
-    if frida:
-        pid = frida.get("pidof") or "not running"
-        frida_ok = frida.get("xj3_exists")
-        lines.append(f"  frida    {'installed' if frida_ok else 'missing'}  pid={pid}")
-
-    kpm = result.get("kpm")
-    if kpm:
-        kpm_ok = kpm.get("installed", False)
-        lines.append(f"  kpm      {'OK' if kpm_ok else 'missing'}")
-        if not kpm.get("checked"):
-            p = kpm.get("problem", "")
-            if p:
-                lines.append(f"           {p}")
-        if not kpm_ok and kpm.get("local_kpm_exists") and not kpm.get("checked"):
-            lines.append("           cmd: xfq doctor --serial <serial> --install-kpm --kpm-superkey <key>")
-    
     lines.append("─" * 54)
     tools = result.get("tools", {})
-    lines.append(f"  host-tools   adb={'OK' if tools.get('adb') else 'MISSING'}"
-                 f"  lz4={'OK' if tools.get('lz4_path') else 'MISSING'}"
-                 f"  pidcat={'OK' if tools.get('pidcat_path') else 'MISSING'}"
-                 f"  7z={'OK' if tools.get('7z_path') else 'MISSING'}")
-    lines.append(f"  python       frida={tools.get('python_frida') or 'missing'}"
-                 f"  frida-tools={tools.get('frida_tools') or 'missing'}")
-
+    lines.append(f"  tools    adb={yn(bool(tools.get('adb')))}"
+                 f"  lz4={yn(bool(tools.get('lz4_path')))}"
+                 f"  pidcat={yn(bool(tools.get('pidcat_path')))}"
+                 f"  7z={yn(bool(tools.get('7z_path')))}")
+    lines.append("─" * 54)
+    lines.append(f"  frida    py={tools.get('python_frida') or 'missing'}"
+                 f"  tools={tools.get('frida_tools') or 'missing'}")
     return "\n".join(lines)
