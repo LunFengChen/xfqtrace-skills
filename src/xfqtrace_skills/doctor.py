@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import queue
 import re
 import shlex
 import shutil
 import subprocess
+import threading
+import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 import os
@@ -15,6 +18,8 @@ from . import __version__
 from .bundle import Bundle, XfqError, bundle_tool_status, default_sample_entry, load_active_bundle, list_versions, validate_bundle_root
 from .skill_install import skill_status
 from .update_check import fetch_channel, newer
+
+XFINJECT_TAGS_URL = "https://api.github.com/repos/LunFengChen/xfinject/tags?per_page=100"
 
 
 def _dist_version(name: str) -> str | None:
@@ -261,12 +266,68 @@ def _parse_go_buildinfo(path: Path) -> dict[str, Any]:
     return info
 
 
-def bundle_artifact_versions(bundle: Bundle | None) -> dict[str, Any]:
+def _fetch_xfinject_release_tag(revision: str, timeout: float = 2.0) -> tuple[str | None, str | None]:
+    """Best-effort mapping from xfinject git revision to public release tag.
+
+    The xfinject binary is an Android executable, so doctor must not execute it
+    on the host.  We instead read Go buildinfo locally and, when update checks
+    are enabled, ask GitHub which published tag points at that commit.  Network
+    failures are non-fatal; callers still have the embedded commit.
+    """
+    if not revision:
+        return None, None
+
+    out: "queue.Queue[tuple[str | None, str | None]]" = queue.Queue(maxsize=1)
+
+    def worker() -> None:
+        try:
+            req = urllib.request.Request(
+                XFINJECT_TAGS_URL,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "xfqtrace-skills doctor",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                tags = json.loads(resp.read().decode("utf-8"))
+            for item in tags:
+                commit = item.get("commit") or {}
+                if commit.get("sha") == revision:
+                    out.put((item.get("name"), None))
+                    return
+            out.put((None, "no matching public tag"))
+        except Exception as exc:
+            out.put((None, str(exc)))
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    try:
+        return out.get(timeout=timeout)
+    except queue.Empty:
+        return None, f"timeout after {timeout:.1f}s"
+
+
+def _resolve_xfinject_release(info: dict[str, Any]) -> dict[str, Any]:
+    revision = info.get("revision")
+    if not revision:
+        return info
+    tag, err = _fetch_xfinject_release_tag(str(revision))
+    if tag:
+        info["release_tag"] = tag
+    elif err:
+        info["release_lookup_error"] = err
+    return info
+
+
+def bundle_artifact_versions(bundle: Bundle | None, *, resolve_remote: bool = False) -> dict[str, Any]:
     if bundle is None:
         return {}
+    xfinject = _parse_go_buildinfo(bundle.xfinjectd_path)
+    if resolve_remote:
+        xfinject = _resolve_xfinject_release(xfinject)
     return {
         "xfqtrace": _detect_libxfqtrace_version(bundle.bin_dir / "libxfqtrace.so"),
-        "xfinject": _parse_go_buildinfo(bundle.xfinjectd_path),
+        "xfinject": xfinject,
     }
 
 
@@ -292,7 +353,7 @@ def _detect_local_bundle() -> Bundle | None:
 
 
 
-def bundle_summary(bundle: Bundle | None) -> dict[str, Any]:
+def bundle_summary(bundle: Bundle | None, *, resolve_remote_versions: bool = False) -> dict[str, Any]:
     if bundle is None:
         return {
             "installed": False,
@@ -314,7 +375,7 @@ def bundle_summary(bundle: Bundle | None) -> dict[str, Any]:
         "bundled_tools": tools,
         "missing_required": missing_required,
         "missing_recommended": missing_recommended,
-        "artifact_versions": bundle_artifact_versions(bundle),
+        "artifact_versions": bundle_artifact_versions(bundle, resolve_remote=resolve_remote_versions),
         "checks": {
             "manifest": (bundle.root / "manifest.json").exists(),
             "entry": bundle.entry.exists(),
@@ -347,7 +408,7 @@ def doctor(
     frida_tools = _dist_version("frida-tools")
     result: dict[str, Any] = {
         "xfq_cli_version": __version__,
-        "bundle": bundle_summary(bundle),
+        "bundle": bundle_summary(bundle, resolve_remote_versions=check_updates),
         "installed_versions": list_versions(),
         "tools": {
             "python_frida": frida_py,
@@ -407,11 +468,17 @@ def print_human_doctor(result: dict[str, Any]) -> str:
         artifacts = bundle.get("artifact_versions") or {}
         xfq = artifacts.get("xfqtrace") or {}
         xfi = artifacts.get("xfinject") or {}
-        if xfq.get("version") or xfi.get("short_revision"):
+        xfi_version = xfi.get("release_tag")
+        xfi_rev = xfi.get("short_revision")
+        if xfi_version and xfi_rev:
+            xfi_display = f"{xfi_version}({xfi_rev})"
+        else:
+            xfi_display = xfi_rev or xfi.get("module_version") or "unknown"
+        if xfq.get("version") or xfi_display != "unknown":
             lines.append(
                 "           "
                 f"xfqtrace={xfq.get('version') or 'unknown'}  "
-                f"xfinject={xfi.get('short_revision') or xfi.get('module_version') or 'unknown'}"
+                f"xfinject={xfi_display}"
                 f"{' dirty' if xfi.get('modified') else ''}"
             )
         mr = bundle.get("missing_required", [])
