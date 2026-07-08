@@ -25,7 +25,7 @@ def _fetch_worker(out: "queue.Queue[tuple[dict[str, Any] | None, str | None]]", 
         out.put((None, str(exc)))
 
 
-def fetch_remote_channel(timeout: float = 0.8) -> tuple[dict[str, Any] | None, str | None]:
+def fetch_remote_channel(timeout: float = 2.0) -> tuple[dict[str, Any] | None, str | None]:
     """Fast remote check; never waits longer than roughly timeout seconds."""
     out: "queue.Queue[tuple[dict[str, Any] | None, str | None]]" = queue.Queue(maxsize=1)
     worker = threading.Thread(target=_fetch_worker, args=(out, timeout), daemon=True)
@@ -36,7 +36,7 @@ def fetch_remote_channel(timeout: float = 0.8) -> tuple[dict[str, Any] | None, s
         return None, f"timeout after {timeout:.1f}s"
 
 
-def fetch_channel(timeout: float = 0.8) -> dict[str, Any]:
+def fetch_channel(timeout: float = 2.0) -> dict[str, Any]:
     channel, _ = fetch_remote_channel(timeout=timeout)
     return channel or local_channel()
 
