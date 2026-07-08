@@ -468,12 +468,15 @@ def print_human_doctor(result: dict[str, Any]) -> str:
         artifacts = bundle.get("artifact_versions") or {}
         xfq = artifacts.get("xfqtrace") or {}
         xfi = artifacts.get("xfinject") or {}
-        xfi_version = xfi.get("release_tag")
+        module_version = xfi.get("module_version")
+        if module_version in {None, "", "(devel)"}:
+            module_version = None
+        xfi_version = xfi.get("release_tag") or module_version
         xfi_rev = xfi.get("short_revision")
         if xfi_version and xfi_rev:
             xfi_display = f"{xfi_version}({xfi_rev})"
         else:
-            xfi_display = xfi_rev or xfi.get("module_version") or "unknown"
+            xfi_display = xfi_rev or xfi_version or "unknown"
         if xfq.get("version") or xfi_display != "unknown":
             lines.append(
                 "           "
