@@ -583,11 +583,11 @@ def print_human_doctor(result: dict[str, Any]) -> str:
                 status = "clean"
             if status_extra:
                 status = f"{status}; {status_extra}"
-            commit_text = commit or "n/a"
+            commit_part = f"commit={commit}  " if commit else ""
             return (
                 f"           {name:<10} "
                 f"version={display_version(version)}  "
-                f"commit={commit_text}  "
+                f"{commit_part}"
                 f"status={status}"
             )
 
