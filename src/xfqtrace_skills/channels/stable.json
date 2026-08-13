@@ -1,7 +1,7 @@
 {
   "cli_version": "0.1.6",
-  "latest_bundle_version": "2.1",
-  "latest_engine_version": "2.1",
-  "download_hint": "xfQTrace kit 2.1 已发布；请进入知识星球下载最新版 kit，然后运行: xfq init ./xfqtrace-kit-2.1.zip -p <password> --force。xfqtrace-skills 0.1.4 用户可直接检测到该更新。",
-  "updated_at": "2026-07-08"
+  "latest_bundle_version": "2.2",
+  "latest_engine_version": "2.2",
+  "download_hint": "xfQTrace kit 2.2 已发布；请进入知识星球下载最新版 kit，然后运行: xfq init ./xfqtrace-kit-2.2.zip -p <password> --force。",
+  "updated_at": "2026-08-13"
 }

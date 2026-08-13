@@ -114,7 +114,7 @@ xfq version
 发布私有 kit 新版本时，公开 pip 包仍不包含 kit、APK、辅助脚本或密码。用户流程是先从知识星球下载 zip，再安装/覆盖当前 kit：
 
 ```bash
-xfq init ./xfqtrace-kit-2.1.zip -p <password> --force
+xfq init ./xfqtrace-kit-2.2.zip -p <password> --force
 xfq doctor --serial <device-serial>
 xfq run test --serial <device-serial> --dry-run
 ```
