@@ -32,7 +32,7 @@ xfq run test --serial <device-serial> --inject-backend frida-server
 | --- | --- |
 | `xfq paths` | 查看 kit 安装目录、配置文件路径 |
 | `xfq doctor --serial <device>` | 只检查环境，不做清理 |
-| `xfq doctor --serial <device> --install-kpm --kpm-superkey <key>` | 检查并按需加载 kit/bin/xfqtrace-hide.kpm；旧 kit 回退 xfvmahide.kpm |
+| `xfq doctor --serial <device> --install-kpm --kpm-superkey <key>` | 检查并按需将 kit/bin/xfqtrace-hide.kpm 推送到 /sdcard/Download 后加载；旧 kit 回退 xfvmahide.kpm |
 | `xfq run test --serial <device> --dry-run` | 用当前真实 kit 检查将执行的命令；lite kit 不含 APK，Shopee 需预装 |
 | `xfq clean --traces -y` | 清理本机 kit/examples 下的 trace/logcat 产物 |
 | `xfq clean --all-versions -y` | 删除非当前版本的旧 kit |

@@ -129,11 +129,14 @@ def kpm_status(
         result["problem"] = f"kit/bin/{module_name}.kpm not found"
         return result
 
-    remote_dir = "/data/local/tmp/mkpms"
+    # Keep the KPM in the user-visible download directory so it is easy to
+    # inspect/reuse from APatch/KernelPatch UIs.  The module is still our own
+    # xfqtrace-hide.kpm; this path is only a staging location before load.
+    remote_dir = "/sdcard/Download"
     remote_kpm = f"{remote_dir}/{kpm_path.name}"
-    rc_mkdir, out_mkdir, err_mkdir = _su(serial, f"mkdir -p {shlex.quote(remote_dir)}", timeout=8)
+    rc_mkdir, out_mkdir, err_mkdir = _adb(serial, "shell", f"mkdir -p {shlex.quote(remote_dir)}", timeout=8)
     rc_push, out_push, err_push = _adb_push(serial, kpm_path, remote_kpm, timeout=60)
-    rc_chmod, out_chmod, err_chmod = _su(serial, f"chmod 644 {shlex.quote(remote_kpm)}", timeout=8)
+    rc_chmod, out_chmod, err_chmod = _adb(serial, "shell", f"chmod 644 {shlex.quote(remote_kpm)} 2>/dev/null || true", timeout=8)
     rc_load, out_load, err_load = _su(serial, _kp_cmd(superkey, f"load {shlex.quote(remote_kpm)}"), timeout=15)
     result["mutated"] = True
     result["install_steps"] = {
