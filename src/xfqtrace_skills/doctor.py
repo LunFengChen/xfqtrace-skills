@@ -322,7 +322,7 @@ def _apply_manifest_component(info: dict[str, Any], component: Any) -> dict[str,
     if version := component.get("version"):
         info["version"] = str(version)
     commit = component.get("commit") or component.get("revision")
-    if commit:
+    if commit and str(commit).lower() not in {"unknown", "n/a", "none"}:
         commit = str(commit)
         info["revision"] = commit
         info["short_revision"] = commit[:12]
