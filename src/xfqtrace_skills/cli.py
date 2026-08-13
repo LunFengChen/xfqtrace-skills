@@ -365,7 +365,7 @@ def update(
 @app.command(name="doctor")
 def doctor_cmd(
     serial: Optional[str] = typer.Option(None, "--serial", "--device", help="ADB 设备序列号"),
-    install_kpm: bool = typer.Option(False, "--install-kpm", help="如 KPM 未安装，则尝试 push/load kit/bin/xfvmahide.kpm"),
+    install_kpm: bool = typer.Option(False, "--install-kpm", help="如 KPM 未安装，则尝试 push/load kit/bin/xfqtrace-hide.kpm；旧 kit 回退 xfvmahide.kpm"),
     kpm_superkey: Optional[str] = typer.Option(None, "--kpm-superkey", help="APatch/KernelPatch superkey；也可用 XFQ_KPM_SUPERKEY"),
     json_output: bool = typer.Option(False, "--json", help="输出 JSON"),
 ):

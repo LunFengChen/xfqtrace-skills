@@ -66,6 +66,10 @@ class Bundle:
         return self.bin_dir / "xfvmahide.kpm"
 
     @property
+    def xfqtrace_hide_kpm(self) -> Path:
+        return self.bin_dir / "xfqtrace-hide.kpm"
+
+    @property
     def xfinjectd_path(self) -> Path:
         return self.bin_dir / "xfinjectd"
 
@@ -143,7 +147,8 @@ def bundle_tool_status(bundle: Bundle) -> dict[str, Any]:
     pidcat_exe = bundle.bin_dir / "pidcat.exe"
     seven_zip = bundle.bin_dir / "7z"
     seven_zip_exe = bundle.bin_dir / "7z.exe"
-    kpm = bundle.xfvmahide_kpm
+    legacy_kpm = bundle.xfvmahide_kpm
+    hide_kpm = bundle.xfqtrace_hide_kpm
     xfinjectd = bundle.xfinjectd_path
     return {
         "libxfqtrace": {"path": str(lib), "exists": lib.exists(), "required": True},
@@ -154,7 +159,8 @@ def bundle_tool_status(bundle: Bundle) -> dict[str, Any]:
         "pidcat_exe": {"path": str(pidcat_exe), "exists": pidcat_exe.exists(), "required": False},
         "7z": {"path": str(seven_zip), "exists": seven_zip.exists(), "required": False},
         "7z_exe": {"path": str(seven_zip_exe), "exists": seven_zip_exe.exists(), "required": False},
-        "xfvmahide_kpm": {"path": str(kpm), "exists": kpm.exists(), "required": False},
+        "xfqtrace_hide_kpm": {"path": str(hide_kpm), "exists": hide_kpm.exists(), "required": False},
+        "xfvmahide_kpm": {"path": str(legacy_kpm), "exists": legacy_kpm.exists(), "required": False},
     }
 
 
@@ -172,6 +178,7 @@ def chmod_bundle_tools(bundle: Bundle) -> None:
         bundle.bin_dir / "pidcat.exe",
         bundle.bin_dir / "7z",
         bundle.bin_dir / "7z.exe",
+        bundle.bin_dir / "xfqtrace-hide.kpm",
         bundle.bin_dir / "xfvmahide.kpm",
         bundle.bin_dir / "xfinjectd",
     ]:

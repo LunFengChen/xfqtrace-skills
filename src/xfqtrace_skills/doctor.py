@@ -91,10 +91,17 @@ def kpm_status(
     install: bool = False,
     superkey: str | None = None,
 ) -> dict[str, Any]:
-    """Check and optionally install/load xfvmahide KPM via APatch/KernelPatch."""
-    kpm_path = bundle.xfvmahide_kpm if bundle else None
+    """Check and optionally install/load the preferred xfQTrace KPM via APatch/KernelPatch."""
+    kpm_path = None
+    module_name = "xfqtrace-hide"
+    if bundle:
+        if bundle.xfqtrace_hide_kpm.exists():
+            kpm_path = bundle.xfqtrace_hide_kpm
+        else:
+            kpm_path = bundle.xfvmahide_kpm
+            module_name = "xfvmahide"
     result: dict[str, Any] = {
-        "module": "xfvmahide",
+        "module": module_name,
         "local_kpm": str(kpm_path) if kpm_path else None,
         "local_kpm_exists": bool(kpm_path and kpm_path.exists()),
         "backend": "truncate/APatch",
@@ -113,17 +120,17 @@ def kpm_status(
     rc, out, err = _su(serial, _kp_cmd(superkey, "list"), timeout=8)
     result["checked"] = True
     result["list"] = {"returncode": rc, "stdout": out, "stderr": err}
-    result["installed"] = rc == 0 and "xfvmahide" in (out or "")
+    result["installed"] = rc == 0 and module_name in (out or "")
 
     if result["installed"] or not install:
         return _run_kpm_test(result, serial, superkey)
 
     if not (kpm_path and kpm_path.exists()):
-        result["problem"] = "kit/bin/xfvmahide.kpm not found"
+        result["problem"] = f"kit/bin/{module_name}.kpm not found"
         return result
 
     remote_dir = "/data/local/tmp/mkpms"
-    remote_kpm = f"{remote_dir}/xfvmahide.kpm"
+    remote_kpm = f"{remote_dir}/{kpm_path.name}"
     rc_mkdir, out_mkdir, err_mkdir = _su(serial, f"mkdir -p {shlex.quote(remote_dir)}", timeout=8)
     rc_push, out_push, err_push = _adb_push(serial, kpm_path, remote_kpm, timeout=60)
     rc_chmod, out_chmod, err_chmod = _su(serial, f"chmod 644 {shlex.quote(remote_kpm)}", timeout=8)
@@ -137,19 +144,19 @@ def kpm_status(
     }
     rc2, out2, err2 = _su(serial, _kp_cmd(superkey, "list"), timeout=8)
     result["post_list"] = {"returncode": rc2, "stdout": out2, "stderr": err2}
-    result["installed"] = rc2 == 0 and "xfvmahide" in (out2 or "")
+    result["installed"] = rc2 == 0 and module_name in (out2 or "")
     return _run_kpm_test(result, serial, superkey)
 
 
 def _run_kpm_test(result: dict[str, Any], serial: str, superkey: str) -> dict[str, Any]:
-    """Internal: verify xfvmahide actually hides a range from a shell-owned helper."""
+    """Internal: verify the selected KPM hides a range from a shell-owned helper."""
     result["test"] = {"skipped": False, "passed": False}
     if not result.get("installed"):
         result["test"]["skipped"] = True
         return result
 
     # Read a range from the adb shell process's own /proc/self/maps.
-    # xfvmahide filters by reading UID, so when the same shell process (UID 2000)
+    # The hide KPM filters by reading UID, so when the same shell process (UID 2000)
     # reads its own maps again after we add a rule for UID 2000, the range should disappear.
     rc_line, out_line, err_line = _adb(serial, "shell", "head -n 1 /proc/self/maps 2>/dev/null", timeout=8)
     line = (out_line or "").splitlines()[0] if out_line else ""
@@ -161,15 +168,16 @@ def _run_kpm_test(result: dict[str, Any], serial: str, superkey: str) -> dict[st
     start_hex, end_hex = range_tok.split("-", 1)
     result["test"]["range"] = range_tok
 
-    _su(serial, _kp_cmd(superkey, "ctl0 xfvmahide clear"), timeout=8)
-    rc_add, _, err_add = _su(serial, _kp_cmd(superkey, f"ctl0 xfvmahide add 2000 0x{start_hex} 0x{end_hex}"), timeout=8)
+    module_name = str(result.get("module") or "xfqtrace-hide")
+    _su(serial, _kp_cmd(superkey, f"ctl0 {module_name} clear"), timeout=8)
+    rc_add, _, err_add = _su(serial, _kp_cmd(superkey, f"ctl0 {module_name} add 2000 0x{start_hex} 0x{end_hex}"), timeout=8)
     if rc_add != 0:
         result["test"]["error"] = err_add or "failed to add hide rule"
         return result
 
-    # Read the SAME process's maps again, still as uid 2000.  xfvmahide should filter.
+    # Read the SAME process's maps again, still as uid 2000. The KPM should filter.
     rc_hide, out_hide, err_hide = _adb(serial, "shell", f"grep -Fc -- '{range_tok}' /proc/self/maps 2>/dev/null", timeout=8)
-    _su(serial, _kp_cmd(superkey, "ctl0 xfvmahide clear"), timeout=8)
+    _su(serial, _kp_cmd(superkey, f"ctl0 {module_name} clear"), timeout=8)
     rc_restore, out_restore, err_restore = _adb(serial, "shell", f"grep -Fc -- '{range_tok}' /proc/self/maps 2>/dev/null", timeout=8)
 
     try:
@@ -335,9 +343,14 @@ def bundle_artifact_versions(bundle: Bundle | None, *, resolve_remote: bool = Fa
         _detect_file_artifact(bundle.xfvmahide_kpm),
         components.get("xfvmahide"),
     )
+    xfqtrace_hide = _apply_manifest_component(
+        _detect_file_artifact(bundle.xfqtrace_hide_kpm),
+        components.get("xfqtrace-hide"),
+    )
     return {
         "xfqtrace": xfqtrace,
         "xfinject": xfinject,
+        "xfqtrace-hide": xfqtrace_hide,
         "xfvmahide": xfvmahide,
     }
 
@@ -396,7 +409,8 @@ def bundle_summary(bundle: Bundle | None, *, resolve_remote_versions: bool = Fal
             "lz4": (bundle.bin_dir / "lz4").exists() or (bundle.bin_dir / "lz4.exe").exists(),
             "pidcat": (bundle.bin_dir / "pidcat").exists() or (bundle.bin_dir / "pidcat.exe").exists(),
             "7z": (bundle.bin_dir / "7z").exists() or (bundle.bin_dir / "7z.exe").exists(),
-            "xfvmahide_kpm": (bundle.bin_dir / "xfvmahide.kpm").exists(),
+            "xfqtrace_hide_kpm": bundle.xfqtrace_hide_kpm.exists(),
+            "xfvmahide_kpm": bundle.xfvmahide_kpm.exists(),
         },
     }
 
@@ -518,6 +532,7 @@ def print_human_doctor(result: dict[str, Any]) -> str:
         artifacts = bundle.get("artifact_versions") or {}
         xfq = artifacts.get("xfqtrace") or {}
         xfi = artifacts.get("xfinject") or {}
+        xfh = artifacts.get("xfqtrace-hide") or {}
         xfv = artifacts.get("xfvmahide") or {}
         checks = bundle.get("checks") or {}
         module_version = xfi.get("module_version")
@@ -525,23 +540,23 @@ def print_human_doctor(result: dict[str, Any]) -> str:
             module_version = None
         xfi_version = xfi.get("release_tag") or module_version
         kpm = result.get("kpm")
-        xfv_status_extra = None
+        kpm_status_extra = None
         if kpm and kpm.get("checked"):
             if kpm.get("installed"):
                 test = kpm.get("test") or {}
                 if test.get("passed"):
-                    xfv_status_extra = "kpm installed/test OK"
+                    kpm_status_extra = "kpm installed/test OK"
                 elif test.get("skipped"):
-                    xfv_status_extra = "kpm installed/test skipped"
+                    kpm_status_extra = "kpm installed/test skipped"
                 else:
-                    xfv_status_extra = "kpm installed"
+                    kpm_status_extra = "kpm installed"
             else:
-                xfv_status_extra = "kpm not installed"
+                kpm_status_extra = "kpm not installed"
         elif kpm and not kpm.get("checked") and kpm.get("problem"):
             problem = str(kpm.get("problem"))
             if "no KPM superkey" in problem:
                 problem = "no superkey"
-            xfv_status_extra = f"device not checked: {problem}"
+            kpm_status_extra = f"device not checked: {problem}"
 
         def display_version(version: str | None) -> str:
             return display_plain_version(version)
@@ -585,12 +600,20 @@ def print_human_doctor(result: dict[str, Any]) -> str:
             dirty=bool(xfi.get("modified")),
         ))
         lines.append(component_row(
+            "xfqhide",
+            xfh.get("version"),
+            xfh.get("short_revision"),
+            exists=bool(checks.get("xfqtrace_hide_kpm")),
+            dirty=bool(xfh.get("modified")),
+            status_extra=kpm_status_extra if kpm and kpm.get("module") == "xfqtrace-hide" else None,
+        ))
+        lines.append(component_row(
             "xfvmahide",
             xfv.get("version"),
             xfv.get("short_revision"),
             exists=bool(checks.get("xfvmahide_kpm")),
             dirty=bool(xfv.get("modified")),
-            status_extra=xfv_status_extra,
+            status_extra=kpm_status_extra if kpm and kpm.get("module") == "xfvmahide" else None,
         ))
         if kpm and not kpm.get("checked") and kpm.get("local_kpm_exists"):
             lines.append("                     cmd: xfq doctor --serial <serial> --install-kpm --kpm-superkey <key>")
