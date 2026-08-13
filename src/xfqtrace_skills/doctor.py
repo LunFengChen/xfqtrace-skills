@@ -315,15 +315,19 @@ def _parse_go_buildinfo(path: Path) -> dict[str, Any]:
 def _apply_manifest_component(info: dict[str, Any], component: Any) -> dict[str, Any]:
     if not isinstance(component, dict):
         return info
+    # Release kits are authoritative about shipped component metadata.
+    # Binary self-detection is only a fallback because embedded strings / Go
+    # buildinfo may come from an intermediate build and can report stale
+    # versions or dirty VCS state even for a cleaned release bundle.
     if version := component.get("version"):
-        info.setdefault("version", str(version))
+        info["version"] = str(version)
     commit = component.get("commit") or component.get("revision")
     if commit:
         commit = str(commit)
         info["revision"] = commit
         info["short_revision"] = commit[:12]
-    if component.get("dirty"):
-        info["modified"] = True
+    if "dirty" in component:
+        info["modified"] = bool(component.get("dirty"))
     return info
 
 
@@ -339,20 +343,21 @@ def bundle_artifact_versions(bundle: Bundle | None, *, resolve_remote: bool = Fa
         _parse_go_buildinfo(bundle.xfinjectd_path),
         components.get("xfinject"),
     )
-    xfvmahide = _apply_manifest_component(
-        _detect_file_artifact(bundle.xfvmahide_kpm),
-        components.get("xfvmahide"),
-    )
-    xfqtrace_hide = _apply_manifest_component(
-        _detect_file_artifact(bundle.xfqtrace_hide_kpm),
-        components.get("xfqtrace-hide"),
-    )
-    return {
+    artifacts = {
         "xfqtrace": xfqtrace,
         "xfinject": xfinject,
-        "xfqtrace-hide": xfqtrace_hide,
-        "xfvmahide": xfvmahide,
     }
+    if "xfqtrace-hide" in components or bundle.xfqtrace_hide_kpm.exists():
+        artifacts["xfqtrace-hide"] = _apply_manifest_component(
+            _detect_file_artifact(bundle.xfqtrace_hide_kpm),
+            components.get("xfqtrace-hide"),
+        )
+    if "xfvmahide" in components or bundle.xfvmahide_kpm.exists():
+        artifacts["xfvmahide"] = _apply_manifest_component(
+            _detect_file_artifact(bundle.xfvmahide_kpm),
+            components.get("xfvmahide"),
+        )
+    return artifacts
 
 
 def _detect_local_bundle() -> Bundle | None:
@@ -538,7 +543,7 @@ def print_human_doctor(result: dict[str, Any]) -> str:
         module_version = xfi.get("module_version")
         if module_version in {None, "", "(devel)"}:
             module_version = None
-        xfi_version = xfi.get("release_tag") or module_version
+        xfi_version = xfi.get("version") or xfi.get("release_tag") or module_version
         kpm = result.get("kpm")
         kpm_status_extra = None
         if kpm and kpm.get("checked"):
@@ -578,10 +583,11 @@ def print_human_doctor(result: dict[str, Any]) -> str:
                 status = "clean"
             if status_extra:
                 status = f"{status}; {status_extra}"
+            commit_text = commit or "n/a"
             return (
                 f"           {name:<10} "
                 f"version={display_version(version)}  "
-                f"commit={commit or 'unknown'}  "
+                f"commit={commit_text}  "
                 f"status={status}"
             )
 
@@ -599,22 +605,24 @@ def print_human_doctor(result: dict[str, Any]) -> str:
             exists=bool(xfi.get("exists")),
             dirty=bool(xfi.get("modified")),
         ))
-        lines.append(component_row(
-            "xfqhide",
-            xfh.get("version"),
-            xfh.get("short_revision"),
-            exists=bool(checks.get("xfqtrace_hide_kpm")),
-            dirty=bool(xfh.get("modified")),
-            status_extra=kpm_status_extra if kpm and kpm.get("module") == "xfqtrace-hide" else None,
-        ))
-        lines.append(component_row(
-            "xfvmahide",
-            xfv.get("version"),
-            xfv.get("short_revision"),
-            exists=bool(checks.get("xfvmahide_kpm")),
-            dirty=bool(xfv.get("modified")),
-            status_extra=kpm_status_extra if kpm and kpm.get("module") == "xfvmahide" else None,
-        ))
+        if xfh or checks.get("xfqtrace_hide_kpm"):
+            lines.append(component_row(
+                "xfqhide",
+                xfh.get("version"),
+                xfh.get("short_revision"),
+                exists=bool(checks.get("xfqtrace_hide_kpm")),
+                dirty=bool(xfh.get("modified")),
+                status_extra=kpm_status_extra if kpm and kpm.get("module") == "xfqtrace-hide" else None,
+            ))
+        if xfv or checks.get("xfvmahide_kpm"):
+            lines.append(component_row(
+                "xfvmahide",
+                xfv.get("version"),
+                xfv.get("short_revision"),
+                exists=bool(checks.get("xfvmahide_kpm")),
+                dirty=bool(xfv.get("modified")),
+                status_extra=kpm_status_extra if kpm and kpm.get("module") == "xfvmahide" else None,
+            ))
         if kpm and not kpm.get("checked") and kpm.get("local_kpm_exists"):
             lines.append("                     cmd: xfq doctor --serial <serial> --install-kpm --kpm-superkey <key>")
         mr = bundle.get("missing_required", [])
@@ -656,6 +664,8 @@ def print_human_doctor(result: dict[str, Any]) -> str:
     lines.append(tool_row("7z", "7z_path", "7z_version"))
     lines.append("─" * 54)
     lines.append("  frida")
-    lines.append(f"           frida={tools.get('python_frida') or 'missing'}")
-    lines.append(f"           frida-tools={tools.get('frida_tools') or 'missing'}")
+    frida_value = tools.get('python_frida') or 'missing (optional for xfinject; install if using frida-server backend)'
+    frida_tools_value = tools.get('frida_tools') or 'missing (optional for xfinject; install if using frida-server backend)'
+    lines.append(f"           frida={frida_value}")
+    lines.append(f"           frida-tools={frida_tools_value}")
     return "\n".join(lines)

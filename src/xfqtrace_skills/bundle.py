@@ -150,7 +150,7 @@ def bundle_tool_status(bundle: Bundle) -> dict[str, Any]:
     legacy_kpm = bundle.xfvmahide_kpm
     hide_kpm = bundle.xfqtrace_hide_kpm
     xfinjectd = bundle.xfinjectd_path
-    return {
+    tools = {
         "libxfqtrace": {"path": str(lib), "exists": lib.exists(), "required": True},
         "xfinjectd": {"path": str(xfinjectd), "exists": xfinjectd.exists(), "required": True},
         "lz4": {"path": str(lz4), "exists": lz4.exists(), "required": False},
@@ -159,9 +159,13 @@ def bundle_tool_status(bundle: Bundle) -> dict[str, Any]:
         "pidcat_exe": {"path": str(pidcat_exe), "exists": pidcat_exe.exists(), "required": False},
         "7z": {"path": str(seven_zip), "exists": seven_zip.exists(), "required": False},
         "7z_exe": {"path": str(seven_zip_exe), "exists": seven_zip_exe.exists(), "required": False},
-        "xfqtrace_hide_kpm": {"path": str(hide_kpm), "exists": hide_kpm.exists(), "required": False},
-        "xfvmahide_kpm": {"path": str(legacy_kpm), "exists": legacy_kpm.exists(), "required": False},
     }
+    components = bundle.manifest.get("components") or {}
+    if "xfqtrace-hide" in components or hide_kpm.exists():
+        tools["xfqtrace_hide_kpm"] = {"path": str(hide_kpm), "exists": hide_kpm.exists(), "required": False}
+    if "xfvmahide" in components or legacy_kpm.exists():
+        tools["xfvmahide_kpm"] = {"path": str(legacy_kpm), "exists": legacy_kpm.exists(), "required": False}
+    return tools
 
 
 def chmod_bundle_tools(bundle: Bundle) -> None:
