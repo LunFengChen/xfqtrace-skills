@@ -1,6 +1,6 @@
 ---
 name: xfqtrace-workflow
-description: 当智能体需要帮助用户安装 xfQTrace kit、定位 kit 目录、用 kit 里的 全自动化trace.py 跑 trace、配置 recipe.json/CONFIG/hook_format/filter/exclude、选择 xfinject/frida-server 后端、查看 logcat/trace 产物、诊断 App 自身问题/环境不干净/Frida 检测/trace 不触发时使用。公开 pip 包不包含私有 kit/APK/密码，kit 需要进 x1a0f3n9 知识星球获取。
+description: 当智能体需要帮助用户安装 xfQTrace kit、定位 kit 目录、用 kit 里的 全自动化trace.py 跑 trace、配置 recipe.json/CONFIG/hook_format/filter/exclude、选择 xfinject/frida-server 后端、查看 logcat/trace 产物、对 trace 日志做后处理检索（ripgrep/traceui）、诊断 App 自身问题/环境不干净/Frida 检测/trace 不触发时使用。公开 pip 包不包含私有 kit/APK/密码，kit 需要进 x1a0f3n9 知识星球获取。
 ---
 
 # xfQTrace 智能体工作流
@@ -117,6 +117,34 @@ adb -s <serial> logcat -v threadtime -s xfQTrace
 | `Fatal signal` / `FATAL EXCEPTION` | App/注入/trace 过程崩溃。 |
 | `skip: filter mismatch` | filter 没命中。 |
 | `skip: another trace is already in progress` | 重入/多线程触发，但当前已有 trace 在跑。 |
+
+### 3.1 trace 日志后处理：只用两件套
+
+trace 日志动辄几百 MB 到十几 GB。后处理不要自己写 Python 解析器，也不要尝试别的索引/查询工具，固定用这两件：
+
+1. **ripgrep 暴力搜索（首选）**：trace `.log` 解压后就是纯文本，直接 `rg` 全文件扫，GB 级文件也是秒级。
+
+```bash
+# 先解压（脚本没自动解压时）
+lz4 -d xfqtrace_xxx.log.lz4
+
+# 定位目标函数/偏移/模块，带行号和上下文
+rg -n -C 3 'sub_BAA60|libtarget.so' xfqtrace_xxx.log
+
+# 找 syscall / JNI 语义行
+rg -n 'svc::execve|svc::openat|JNIEnv::' xfqtrace_xxx.log
+
+# 统计命中次数、只看前后 N 条、限制输出量
+rg -c 'pattern' xfqtrace_xxx.log
+rg -n -m 20 'pattern' xfqtrace_xxx.log
+
+# 一次扫整个样本目录（含历史 session）
+rg -n 'pattern' examples/<package>/
+```
+
+2. **traceui 导入（交互式查看）**:`out_format: "traceui"` 的日志可以直接导入 traceui 看调用流，适合需要交互式跳转、看执行序列结构的场景；批量定位、统计、跨文件搜索仍回退到 rg。
+
+原则：**先 rg 定位到行号和上下文，再决定要不要导入 traceui 细看**。不要为了一次性检索去写脚本解析 trace 格式。
 
 ## 4. 配置加载优先级
 
